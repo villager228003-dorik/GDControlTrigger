@@ -1,0 +1,9 @@
+{
+	"geode": "6.0.0",
+	"gd": "*",
+	"version": "v1.0.0",
+	"id": "elisey.controltrigger",
+	"name": "Control Trigger",
+	"developer": "Elisey",
+	"description": "Custom control trigger for the level editor (touch / keyboard / mouse)."
+}
