@@ -6,9 +6,43 @@
 		"mac": "2.2091",
 		"ios": "2.2091"
 	},
-	"version": "v1.0.1",
+	"version": "v1.1.0",
 	"id": "elisey.controltrigger",
 	"name": "Control Trigger",
 	"developer": "Elisey",
-	"description": "Custom control trigger for the level editor (touch / keyboard / mouse)."
+	"description": "Touch controls for levels: objects of a group act as a button or can be dragged by a finger.",
+	"settings": {
+		"mode": {
+			"type": "string",
+			"name": "Mode",
+			"description": "button: pressing an object of the button group activates the target group. drag: an object of the button group follows the finger.",
+			"default": "button",
+			"one-of": ["button", "drag"]
+		},
+		"button-group": {
+			"type": "int",
+			"name": "Button group",
+			"description": "Objects in this group react to touch.",
+			"default": 1,
+			"min": 1,
+			"max": 9999
+		},
+		"target-group": {
+			"type": "int",
+			"name": "Target group (button mode)",
+			"description": "Group that is activated while the button is pressed.",
+			"default": 2,
+			"min": 1,
+			"max": 9999
+		},
+		"hold-time": {
+			"type": "float",
+			"name": "Hold time before drag (s)",
+			"description": "Drag mode: how long the finger must stay on the object before it can be dragged.",
+			"default": 0.3,
+			"min": 0,
+			"max": 3,
+			"control": { "slider": true }
+		}
+	}
 }
