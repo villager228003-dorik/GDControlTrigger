@@ -96,6 +96,57 @@ namespace {
 		}
 	}
 
+
+	// ---- "Lock Move": hide / disable the left-right buttons and keys ----
+	bool g_lockMove = false;
+	std::vector<Ref<CCNode>> g_hiddenUI;
+	int g_uiTick = 0;
+
+	void hideMoveButtons(CCNode* node, CCSize ws) {
+		auto kids = node->getChildren();
+		if (!kids) return;
+		for (auto c : CCArrayExt<CCNode*>(kids)) {
+			if (!c || !c->isVisible()) continue;
+			auto bb = c->boundingBox();
+			auto a = node->convertToWorldSpace(ccp(bb.getMinX(), bb.getMinY()));
+			auto b = node->convertToWorldSpace(ccp(bb.getMaxX(), bb.getMaxY()));
+			bool inside = bb.size.width > 1.f && b.x < ws.width * 0.35f && b.y < ws.height * 0.4f && a.x >= 0.f && a.y >= 0.f;
+			if (inside) {
+				c->setVisible(false);
+				g_hiddenUI.push_back(c);
+			} else {
+				hideMoveButtons(c, ws);
+			}
+		}
+	}
+
+	void applyLockUI() {
+		if (g_lockMove) {
+			if (g_uiTick++ % 20 == 0) {
+				if (auto ui = UILayer::get()) hideMoveButtons(ui, CCDirector::sharedDirector()->getWinSize());
+			}
+		} else if (!g_hiddenUI.empty()) {
+			for (auto& n : g_hiddenUI) {
+				if (n) n->setVisible(true);
+			}
+			g_hiddenUI.clear();
+			g_uiTick = 0;
+		}
+	}
+
+	// the Ctrl triggers of the level, refreshed once a second
+	std::vector<EffectGameObject*> g_trigCache;
+	GJBaseGameLayer* g_trigLayer = nullptr;
+	int g_trigTick = 0;
+
+	std::vector<EffectGameObject*> const& cachedTriggers(GJBaseGameLayer* layer) {
+		if (layer != g_trigLayer || g_trigTick++ % 60 == 0) {
+			g_trigLayer = layer;
+			g_trigCache = ctrlTriggers(layer);
+		}
+		return g_trigCache;
+	}
+
 	CCTouch* g_buttonTouch = nullptr;
 
 	struct DragState {
@@ -296,13 +347,36 @@ class $modify(CTPlayLayer, PlayLayer) {
 		g_dropped.clear();
 		g_buttonTouch = nullptr;
 		g_lastPlayerX = 0.f;
+		g_lockMove = false;
+		g_hiddenUI.clear();
+		g_trigCache.clear();
+		g_trigLayer = nullptr;
 		PlayLayer::setupHasCompleted();
 	}
 };
 
 // Runs in the real game and in the editor playtest.
 class $modify(CTBaseLayer, GJBaseGameLayer) {
+	// block the left (2) and right (3) buttons / keys while "Lock Move" is active
+	void handleButton(bool down, int button, bool isPlayer1) {
+		if (down && g_lockMove && (button == 2 || button == 3)) return;
+		GJBaseGameLayer::handleButton(down, button, isPlayer1);
+	}
+
 	void update(float dt) {
+		bool lock = false;
+		if (m_player1) {
+			float px = m_player1->getPositionX();
+			for (auto t : cachedTriggers(this)) {
+				if (t && ctrlLockGet(t) && px >= t->getPositionX()) {
+					lock = true;
+					break;
+				}
+			}
+		}
+		g_lockMove = lock;
+		applyLockUI();
+
 		GJBaseGameLayer::update(dt);
 
 		if (m_player1) {

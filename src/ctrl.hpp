@@ -7,3 +7,7 @@ int ctrlObjectId();
 // mode of a Ctrl trigger: 0 = button mode, 1 = drag mode
 int ctrlModeGet(GameObject* obj);
 void ctrlModeSet(GameObject* obj, int mode);
+
+// "Lock move" flag: hides / disables the left-right buttons and keys
+bool ctrlLockGet(GameObject* obj);
+void ctrlLockSet(GameObject* obj, bool lock);

@@ -3,6 +3,7 @@
 // downloaded at build time and compiled into this mod.
 #include <Geode/Geode.hpp>
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <map>
 #include <functional>
@@ -29,6 +30,16 @@ int ctrlObjectId() {
 
 namespace {
 	std::map<GameObject*, int> g_modes;
+	std::map<GameObject*, bool> g_locks;
+}
+
+bool ctrlLockGet(GameObject* obj) {
+	auto it = g_locks.find(obj);
+	return it != g_locks.end() && it->second;
+}
+
+void ctrlLockSet(GameObject* obj, bool lock) {
+	g_locks[obj] = lock;
 }
 
 int ctrlModeGet(GameObject* obj) {
@@ -40,30 +51,46 @@ void ctrlModeSet(GameObject* obj, int mode) {
 	g_modes[obj] = mode;
 }
 
-// Two checkboxes in the trigger window, styled like the ones in the Move trigger window:
-// "Button Mode" and "Drag Mode" (only one can be on).
+// Hides the vanilla "Touch Trigger" / "Spawn Trigger" texts (they do nothing for Ctrl).
+static void hideVanillaTexts(CCNode* n) {
+	if (!n) return;
+	auto kids = n->getChildren();
+	if (!kids) return;
+	for (auto c : CCArrayExt<CCNode*>(kids)) {
+		if (auto l = typeinfo_cast<CCLabelBMFont*>(c)) {
+			std::string t = l->getString();
+			std::transform(t.begin(), t.end(), t.begin(), [](unsigned char ch) { return std::tolower(ch); });
+			if (t.find("touch") != std::string::npos || t.find("spawn") != std::string::npos) c->setVisible(false);
+		}
+		hideVanillaTexts(c);
+	}
+}
+
+// Checkboxes in the trigger window, styled like the ones in the Move trigger window:
+// "Button Mode" / "Drag Mode" (only one can be on) and "Lock Move".
 class CTModeUI : public CCNode {
 public:
 	std::vector<EffectGameObject*> m_targets;
 	CCMenuItemToggler* m_togBtn = nullptr;
 	CCMenuItemToggler* m_togDrag = nullptr;
+	CCMenuItemToggler* m_togLock = nullptr;
 
-	static CTModeUI* create(std::vector<EffectGameObject*> targets, int mode, CCMenu* menu) {
+	static CTModeUI* create(std::vector<EffectGameObject*> targets, int mode, bool lock, CCMenu* menu, FLAlertLayer* popup) {
 		auto r = new CTModeUI();
 		if (r && r->init()) {
 			r->autorelease();
 			menu->addChild(r);
-			r->setup(std::move(targets), mode, menu);
+			r->setup(std::move(targets), mode, lock, menu, popup);
 			return r;
 		}
 		CC_SAFE_DELETE(r);
 		return nullptr;
 	}
 
-	void setup(std::vector<EffectGameObject*> targets, int mode, CCMenu* menu) {
+	void setup(std::vector<EffectGameObject*> targets, int mode, bool lock, CCMenu* menu, FLAlertLayer* popup) {
 		m_targets = std::move(targets);
 
-		// place the checkboxes on the same rows as the existing Touch / Spawn trigger checkboxes
+		// find the existing Touch / Spawn checkboxes: we use their rows and then hide them
 		std::vector<CCMenuItemToggler*> existing;
 		if (auto kids = menu->getChildren()) {
 			for (auto child : CCArrayExt<CCNode*>(kids)) {
@@ -74,30 +101,44 @@ public:
 			return a->getPositionY() > b->getPositionY();
 		});
 		float x = 78.f, yTop = 37.f, yBottom = 8.f;
+		float lx = -144.f, ly = 37.f;
 		if (existing.size() >= 2) {
 			x = existing[0]->getPositionX() + 222.f;
 			yTop = existing[0]->getPositionY();
 			yBottom = existing[1]->getPositionY();
+			lx = existing[0]->getPositionX();
+			ly = existing[0]->getPositionY();
+			for (auto tg : existing) {
+				tg->setVisible(false);
+				tg->setEnabled(false);
+			}
+			hideVanillaTexts(menu);
+			if (popup) hideVanillaTexts(popup);
 		}
 
 		m_togBtn = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onButton), 0.55f);
 		m_togDrag = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onDrag), 0.55f);
+		m_togLock = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onLock), 0.55f);
 		m_togBtn->setPosition({x, yTop});
 		m_togDrag->setPosition({x, yBottom});
+		m_togLock->setPosition({lx, ly});
 		m_togBtn->toggle(mode == 0);
 		m_togDrag->toggle(mode == 1);
+		m_togLock->toggle(lock);
 		menu->addChild(m_togBtn);
 		menu->addChild(m_togDrag);
+		menu->addChild(m_togLock);
 
-		auto addLabel = [&](char const* text, float y) {
+		auto addLabel = [&](char const* text, float px, float py) {
 			auto l = CCLabelBMFont::create(text, "bigFont.fnt");
 			l->setScale(0.4f);
 			l->setAnchorPoint({0.f, 0.5f});
-			l->setPosition({x + 14.f, y});
+			l->setPosition({px + 14.f, py});
 			menu->addChild(l);
 		};
-		addLabel("Button\nMode", yTop);
-		addLabel("Drag\nMode", yBottom);
+		addLabel("Button\nMode", x, yTop);
+		addLabel("Drag\nMode", x, yBottom);
+		addLabel("Lock\nMove", lx, ly);
 	}
 
 	void apply(int mode) {
@@ -118,6 +159,12 @@ public:
 		m_togBtn->toggle(false);
 		apply(1);
 	}
+
+	void onLock(CCObject* sender) {
+		auto t = static_cast<CCMenuItemToggler*>(sender);
+		bool on = !t->isToggled(); // state after the flip
+		for (auto trg : m_targets) ctrlLockSet(trg, on);
+	}
 };
 
 namespace {
@@ -126,6 +173,7 @@ namespace {
 	constexpr int KEY_FIRE = 9002;   // group of triggers to fire (0 = drag mode)
 	constexpr int KEY_HOLD = 9003;   // hold time in seconds
 	constexpr int KEY_MODE = 9004;   // 0 = button mode, 1 = drag mode
+	constexpr int KEY_LOCK = 9005;   // 1 = lock the left/right buttons and keys
 }
 
 $execute {
@@ -162,7 +210,7 @@ $execute {
 						}
 					}
 				}
-				CTModeUI::create(targets, ctrlModeGet(trigger), menu);
+				CTModeUI::create(targets, ctrlModeGet(trigger), ctrlLockGet(trigger), menu, popup);
 			}
 
 			auto add = [&](char const* hint, float x, std::string value, std::function<void(std::string const&)> cb) {
@@ -195,7 +243,7 @@ $execute {
 		bool semi = !str.empty() && str.back() == ';';
 		if (semi) str.pop_back();
 		if (!str.empty() && str.back() != ',') str += ",";
-		str += fmt::format("{},{},{},{},{},{},{},{}", KEY_BUTTON, trig->m_targetGroupID, KEY_FIRE, trig->m_centerGroupID, KEY_HOLD, trig->m_duration, KEY_MODE, ctrlModeGet(obj));
+		str += fmt::format("{},{},{},{},{},{},{},{},{},{}", KEY_BUTTON, trig->m_targetGroupID, KEY_FIRE, trig->m_centerGroupID, KEY_HOLD, trig->m_duration, KEY_MODE, ctrlModeGet(obj), KEY_LOCK, ctrlLockGet(obj) ? 1 : 0);
 		if (semi) str += ";";
 		return str;
 	});
@@ -209,6 +257,7 @@ $execute {
 			else if (key == KEY_FIRE) trig->m_centerGroupID = std::atoi(val.c_str());
 			else if (key == KEY_HOLD) trig->m_duration = static_cast<float>(std::atof(val.c_str()));
 			else if (key == KEY_MODE) ctrlModeSet(obj, std::atoi(val.c_str()));
+			else if (key == KEY_LOCK) ctrlLockSet(obj, std::atoi(val.c_str()) != 0);
 		}
 		return obj;
 	});
