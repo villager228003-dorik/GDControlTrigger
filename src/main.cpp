@@ -11,7 +11,6 @@ namespace {
 		GameObject* dragObj = nullptr;
 		bool buttonMode = false;
 		int targetGroup = 0;
-		bool invert = false;
 		CCPoint last;
 		std::chrono::steady_clock::time_point start;
 	};
@@ -32,10 +31,17 @@ namespace {
 		return nullptr;
 	}
 
-	void releaseTouch() {
-		if (g.buttonMode && g.targetGroup > 0) {
-			if (auto layer = GJBaseGameLayer::get()) layer->toggleGroup(g.targetGroup, g.invert);
+	void fireGroup(GJBaseGameLayer* layer, int group) {
+		auto arr = layer->getGroup(group);
+		if (!arr) return;
+		for (auto obj : CCArrayExt<GameObject*>(arr)) {
+			if (auto trig = typeinfo_cast<EffectGameObject*>(obj)) {
+				trig->triggerObject(layer, 0, nullptr);
+			}
 		}
+	}
+
+	void releaseTouch() {
 		g = TouchState{};
 	}
 }
@@ -54,8 +60,7 @@ class $modify(CTUILayer, UILayer) {
 				if (mod->getSettingValue<std::string>("mode") == "button") {
 					g.buttonMode = true;
 					g.targetGroup = static_cast<int>(mod->getSettingValue<int64_t>("target-group"));
-					g.invert = mod->getSettingValue<bool>("invert");
-					layer->toggleGroup(g.targetGroup, !g.invert);
+					fireGroup(layer, g.targetGroup);
 				} else {
 					g.dragObj = obj;
 				}

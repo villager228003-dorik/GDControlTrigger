@@ -6,7 +6,7 @@
 		"mac": "2.2091",
 		"ios": "2.2091"
 	},
-	"version": "v1.2.0",
+	"version": "v1.3.0",
 	"id": "elisey.controltrigger",
 	"name": "Control Trigger",
 	"developer": "Elisey",
@@ -15,7 +15,7 @@
 		"mode": {
 			"type": "string",
 			"name": "Mode",
-			"description": "button: pressing an object of the button group activates the target group. drag: an object of the button group follows the finger.",
+			"description": "button: pressing an object of the button group fires the triggers of the target group. drag: an object of the button group follows the finger.",
 			"default": "button",
 			"one-of": [
 				"button",
@@ -32,8 +32,8 @@
 		},
 		"target-group": {
 			"type": "int",
-			"name": "Target group (button mode)",
-			"description": "Group that is activated while the button is pressed.",
+			"name": "Trigger group (button mode)",
+			"description": "Triggers in this group are fired when the button is pressed (set them to Spawn Triggered).",
 			"default": 2,
 			"min": 1,
 			"max": 9999
@@ -48,12 +48,6 @@
 			"control": {
 				"slider": true
 			}
-		},
-		"invert": {
-			"type": "bool",
-			"name": "Invert (button mode)",
-			"description": "Flips the target group: on press it is switched the other way, on release it goes back.",
-			"default": false
 		}
 	}
 }
