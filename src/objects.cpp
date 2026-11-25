@@ -57,7 +57,7 @@ $execute {
 			auto add = [&](char const* hint, float x, std::string value, std::function<void(std::string const&)> cb) {
 				auto in = TextInput::create(110.f, hint, "bigFont.fnt");
 				in->setScale(0.55f);
-				in->setPosition({x, 15.f});
+				in->setPosition({x, 47.f});
 				in->setFilter("0123456789.");
 				in->setString(value);
 				in->setCallback(cb);

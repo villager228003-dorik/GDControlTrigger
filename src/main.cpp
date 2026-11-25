@@ -2,7 +2,7 @@
 #include <Geode/modify/UILayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
-#include <Geode/modify/LevelEditorLayer.hpp>
+#include <Geode/modify/EditorUI.hpp>
 #include <chrono>
 #include <map>
 #include <set>
@@ -138,6 +138,7 @@ namespace {
 		for (auto t : ctrlTriggers(layer)) {
 			if (!t->getParent()) continue;
 			seen.insert(t);
+			t->setOpacity(0);
 			auto& b = g_badges[t];
 			if (!b) {
 				b = CTBadge::create();
@@ -159,10 +160,35 @@ namespace {
 	}
 }
 
-class $modify(CTEditorLayer, LevelEditorLayer) {
-	void update(float dt) {
-		LevelEditorLayer::update(dt);
-		syncBadges(this);
+// A tiny node that runs every frame while the editor is open and keeps the circles in sync.
+class CTSyncNode : public CCNode {
+public:
+	static CTSyncNode* create() {
+		auto r = new CTSyncNode();
+		if (r && r->init()) {
+			r->autorelease();
+			return r;
+		}
+		CC_SAFE_DELETE(r);
+		return nullptr;
+	}
+
+	bool init() override {
+		if (!CCNode::init()) return false;
+		this->scheduleUpdate();
+		return true;
+	}
+
+	void update(float) override {
+		if (auto layer = LevelEditorLayer::get()) syncBadges(layer);
+	}
+};
+
+class $modify(CTEditorUI, EditorUI) {
+	bool init(LevelEditorLayer* editor) {
+		if (!EditorUI::init(editor)) return false;
+		if (auto n = CTSyncNode::create()) this->addChild(n);
+		return true;
 	}
 };
 
