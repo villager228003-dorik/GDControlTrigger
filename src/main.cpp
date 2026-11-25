@@ -12,12 +12,9 @@ namespace {
 		if (!arr) return nullptr;
 		for (auto obj : CCArrayExt<GameObject*>(arr)) {
 			if (!obj || !obj->getParent()) continue;
-			auto size = obj->getContentSize();
-			float r = std::max(std::max(size.width, size.height), 30.f) * 0.5f * obj->getScale() + 12.f;
-			auto p = obj->getParent()->convertToWorldSpace(obj->getPosition());
-			float dx = p.x - world.x;
-			float dy = p.y - world.y;
-			if (dx * dx + dy * dy <= r * r) return obj;
+			auto parent = obj->getParent();
+			auto local = parent->convertToNodeSpace(world);
+			if (obj->boundingBox().containsPoint(local)) return obj;
 		}
 		return nullptr;
 	}
@@ -97,10 +94,8 @@ class $modify(CTPlayLayer, PlayLayer) {
 		float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - g_drag.start).count();
 		auto cur = g_drag.touch->getLocation();
 		if (elapsed >= hold) {
-			auto parent = g_drag.obj->getParent();
-			auto a = parent->convertToNodeSpace(g_drag.last);
-			auto b = parent->convertToNodeSpace(cur);
-			g_drag.obj->setPosition(ccpAdd(g_drag.obj->getPosition(), ccpSub(b, a)));
+			// teleport the object to the finger and keep it there
+			g_drag.obj->setPosition(g_drag.obj->getParent()->convertToNodeSpace(cur));
 		}
 		g_drag.last = cur;
 	}
