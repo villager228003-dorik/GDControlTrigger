@@ -1,6 +1,8 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/UILayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
+#include <Geode/modify/CCTouchDispatcher.hpp>
+#include <vector>
 #include <chrono>
 #include <algorithm>
 
@@ -68,74 +70,65 @@ class $modify(CTUILayer, UILayer) {
 	}
 };
 
-// ---------- Drag mode (own touch layer with high priority) ----------
-class CTDragLayer : public CCLayer {
-public:
-	CCTouch* m_touch = nullptr;
-	GameObject* m_obj = nullptr;
-	CCPoint m_last;
-	std::chrono::steady_clock::time_point m_start;
+// ---------- Drag mode (works at the touch dispatcher level) ----------
+namespace {
+	struct DragState {
+		CCTouch* touch = nullptr;
+		GameObject* obj = nullptr;
+		CCPoint last;
+		std::chrono::steady_clock::time_point start;
+	};
+	DragState g_drag;
+}
 
-	static CTDragLayer* create() {
-		auto r = new CTDragLayer();
-		if (r && r->init()) {
-			r->autorelease();
-			return r;
-		}
-		CC_SAFE_DELETE(r);
-		return nullptr;
-	}
-
-	bool init() override {
-		if (!CCLayer::init()) return false;
-		this->setTouchEnabled(true);
-		return true;
-	}
-
-	void registerWithTouchDispatcher() override {
-		CCTouchDispatcher::get()->addTargetedDelegate(this, -700, true);
-	}
-
-	bool ccTouchBegan(CCTouch* t, CCEvent*) override {
+class $modify(CTDispatcher, CCTouchDispatcher) {
+	void touches(CCSet* set, CCEvent* ev, unsigned int type) {
 		auto pl = PlayLayer::get();
+		if (!pl) g_drag = DragState{};
 		auto mod = Mod::get();
-		if (!pl || mod->getSettingValue<std::string>("mode") != "drag") return false;
-		int group = static_cast<int>(mod->getSettingValue<int64_t>("button-group"));
-		auto obj = hitObject(pl, group, t->getLocation());
-		if (!obj) return false;
-		m_touch = t;
-		m_obj = obj;
-		m_last = t->getLocation();
-		m_start = std::chrono::steady_clock::now();
-		return true;
-	}
-
-	void ccTouchMoved(CCTouch* t, CCEvent*) override {
-		if (t != m_touch || !m_obj || !m_obj->getParent()) return;
-		float hold = static_cast<float>(Mod::get()->getSettingValue<double>("hold-time"));
-		float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_start).count();
-		auto cur = t->getLocation();
-		if (elapsed >= hold) {
-			auto parent = m_obj->getParent();
-			auto a = parent->convertToNodeSpace(m_last);
-			auto b = parent->convertToNodeSpace(cur);
-			m_obj->setPosition(ccpAdd(m_obj->getPosition(), ccpSub(b, a)));
+		if (!pl || !set || mod->getSettingValue<std::string>("mode") != "drag") {
+			CCTouchDispatcher::touches(set, ev, type);
+			return;
 		}
-		m_last = cur;
-	}
 
-	void ccTouchEnded(CCTouch* t, CCEvent*) override {
-		if (t == m_touch) { m_touch = nullptr; m_obj = nullptr; }
-	}
+		std::vector<CCTouch*> list;
+		for (auto it = set->begin(); it != set->end(); ++it) {
+			list.push_back(static_cast<CCTouch*>(*it));
+		}
 
-	void ccTouchCancelled(CCTouch* t, CCEvent*) override {
-		if (t == m_touch) { m_touch = nullptr; m_obj = nullptr; }
-	}
-};
+		for (auto t : list) {
+			if (type == 0) {
+				if (g_drag.touch) continue;
+				int group = static_cast<int>(mod->getSettingValue<int64_t>("button-group"));
+				if (auto obj = hitObject(pl, group, t->getLocation())) {
+					g_drag.touch = t;
+					g_drag.obj = obj;
+					g_drag.last = t->getLocation();
+					g_drag.start = std::chrono::steady_clock::now();
+					set->removeObject(t);
+				}
+			} else if (t == g_drag.touch) {
+				if (type == 1) {
+					if (g_drag.obj && g_drag.obj->getParent()) {
+						float hold = static_cast<float>(mod->getSettingValue<double>("hold-time"));
+						float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - g_drag.start).count();
+						auto cur = t->getLocation();
+						if (elapsed >= hold) {
+							auto parent = g_drag.obj->getParent();
+							auto a = parent->convertToNodeSpace(g_drag.last);
+							auto b = parent->convertToNodeSpace(cur);
+							g_drag.obj->setPosition(ccpAdd(g_drag.obj->getPosition(), ccpSub(b, a)));
+						}
+						g_drag.last = cur;
+					}
+				} else {
+					g_drag = DragState{};
+				}
+				set->removeObject(t);
+			}
+		}
 
-class $modify(CTPlayLayer, PlayLayer) {
-	void setupHasCompleted() {
-		PlayLayer::setupHasCompleted();
-		if (auto l = CTDragLayer::create()) this->addChild(l, 10000);
+		if (set->count() == 0) return;
+		CCTouchDispatcher::touches(set, ev, type);
 	}
 };
