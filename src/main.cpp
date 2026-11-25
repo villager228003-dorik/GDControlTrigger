@@ -28,7 +28,7 @@ namespace {
 		if (!layer || !layer->m_objects) return out;
 		for (auto obj : CCArrayExt<GameObject*>(layer->m_objects)) {
 			if (obj && obj->m_objectID == CTRL_ID) {
-				if (auto t = typeinfo_cast<EffectGameObject*>(obj)) out.push_back(t);
+				out.push_back(static_cast<EffectGameObject*>(obj));
 			}
 		}
 		return out;
@@ -163,10 +163,31 @@ namespace {
 	}
 }
 
+namespace {
+	int g_lastRaw = -1;
+	int g_alerts = 0;
+}
+
 class $modify(CTEditorLayer, LevelEditorLayer) {
 	void update(float dt) {
 		LevelEditorLayer::update(dt);
 		syncBadges(this);
+
+		// temporary diagnostics: shown when the number of Rotate triggers changes
+		int total = m_objects ? static_cast<int>(m_objects->count()) : -1;
+		int raw = 0;
+		if (m_objects) {
+			for (auto obj : CCArrayExt<GameObject*>(m_objects)) {
+				if (obj && obj->m_objectID == CTRL_ID) raw++;
+			}
+		}
+		if (raw != g_lastRaw && g_alerts < 12) {
+			g_lastRaw = raw;
+			g_alerts++;
+			auto msg = fmt::format("objects={} rotate={} badges={} layer={}",
+				total, raw, g_badges.size(), m_objectLayer ? 1 : 0);
+			FLAlertLayer::create("Ctrl v2.1.0", msg, "OK")->show();
+		}
 	}
 };
 

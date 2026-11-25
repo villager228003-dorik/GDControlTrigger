@@ -16,4 +16,13 @@ endif()
 
 add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
 
+# Custom game objects (open-source library, header-style, compiled into this mod)
+CPMAddPackage(
+    NAME gof
+    GITHUB_REPOSITORY lil2kki/geode-game-objects-factory
+    GIT_TAG master
+    DOWNLOAD_ONLY YES
+)
+target_include_directories(${PROJECT_NAME} PRIVATE ${gof_SOURCE_DIR}/include)
+
 setup_geode_mod(${PROJECT_NAME})
