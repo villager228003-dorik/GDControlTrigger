@@ -6,7 +6,7 @@
 		"mac": "2.2091",
 		"ios": "2.2091"
 	},
-	"version": "v1.1.0",
+	"version": "v1.2.0",
 	"id": "elisey.controltrigger",
 	"name": "Control Trigger",
 	"developer": "Elisey",
@@ -17,7 +17,10 @@
 			"name": "Mode",
 			"description": "button: pressing an object of the button group activates the target group. drag: an object of the button group follows the finger.",
 			"default": "button",
-			"one-of": ["button", "drag"]
+			"one-of": [
+				"button",
+				"drag"
+			]
 		},
 		"button-group": {
 			"type": "int",
@@ -42,7 +45,15 @@
 			"default": 0.3,
 			"min": 0,
 			"max": 3,
-			"control": { "slider": true }
+			"control": {
+				"slider": true
+			}
+		},
+		"invert": {
+			"type": "bool",
+			"name": "Invert (button mode)",
+			"description": "Flips the target group: on press it is switched the other way, on release it goes back.",
+			"default": false
 		}
 	}
 }
