@@ -2,6 +2,7 @@
 // Uses the open-source "game objects factory" (lil2kki/geode-game-objects-factory),
 // downloaded at build time and compiled into this mod.
 #include <Geode/Geode.hpp>
+#include <algorithm>
 #include <cstdlib>
 #include <map>
 #include <functional>
@@ -39,12 +40,13 @@ void ctrlModeSet(GameObject* obj, int mode) {
 	g_modes[obj] = mode;
 }
 
-// Two buttons in the trigger window: Button mode / Drag mode (only one can be active).
+// Two checkboxes in the trigger window, styled like the ones in the Move trigger window:
+// "Button Mode" and "Drag Mode" (only one can be on).
 class CTModeUI : public CCNode {
 public:
 	std::vector<EffectGameObject*> m_targets;
-	CCLabelBMFont* m_btn = nullptr;
-	CCLabelBMFont* m_drag = nullptr;
+	CCMenuItemToggler* m_togBtn = nullptr;
+	CCMenuItemToggler* m_togDrag = nullptr;
 
 	static CTModeUI* create(std::vector<EffectGameObject*> targets, int mode, CCMenu* menu) {
 		auto r = new CTModeUI();
@@ -60,31 +62,62 @@ public:
 
 	void setup(std::vector<EffectGameObject*> targets, int mode, CCMenu* menu) {
 		m_targets = std::move(targets);
-		m_btn = CCLabelBMFont::create("Button mode", "bigFont.fnt");
-		m_drag = CCLabelBMFont::create("Drag mode", "bigFont.fnt");
-		m_btn->setScale(0.35f);
-		m_drag->setScale(0.35f);
-		auto b = CCMenuItemLabel::create(m_btn, this, menu_selector(CTModeUI::onButton));
-		auto d = CCMenuItemLabel::create(m_drag, this, menu_selector(CTModeUI::onDrag));
-		b->setPosition({96.f, 25.f});
-		d->setPosition({96.f, 7.f});
-		menu->addChild(b);
-		menu->addChild(d);
-		refresh(mode);
-	}
 
-	void refresh(int mode) {
-		m_btn->setColor(mode == 0 ? ccColor3B{80, 255, 80} : ccColor3B{130, 130, 130});
-		m_drag->setColor(mode == 1 ? ccColor3B{80, 255, 80} : ccColor3B{130, 130, 130});
+		// place the checkboxes on the same rows as the existing Touch / Spawn trigger checkboxes
+		std::vector<CCMenuItemToggler*> existing;
+		if (auto kids = menu->getChildren()) {
+			for (auto child : CCArrayExt<CCNode*>(kids)) {
+				if (auto tg = typeinfo_cast<CCMenuItemToggler*>(child)) existing.push_back(tg);
+			}
+		}
+		std::sort(existing.begin(), existing.end(), [](CCMenuItemToggler* a, CCMenuItemToggler* b) {
+			return a->getPositionY() > b->getPositionY();
+		});
+		float x = 78.f, yTop = 37.f, yBottom = 8.f;
+		if (existing.size() >= 2) {
+			x = existing[0]->getPositionX() + 222.f;
+			yTop = existing[0]->getPositionY();
+			yBottom = existing[1]->getPositionY();
+		}
+
+		m_togBtn = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onButton), 0.55f);
+		m_togDrag = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onDrag), 0.55f);
+		m_togBtn->setPosition({x, yTop});
+		m_togDrag->setPosition({x, yBottom});
+		m_togBtn->toggle(mode == 0);
+		m_togDrag->toggle(mode == 1);
+		menu->addChild(m_togBtn);
+		menu->addChild(m_togDrag);
+
+		auto addLabel = [&](char const* text, float y) {
+			auto l = CCLabelBMFont::create(text, "bigFont.fnt");
+			l->setScale(0.4f);
+			l->setAnchorPoint({0.f, 0.5f});
+			l->setPosition({x + 14.f, y});
+			menu->addChild(l);
+		};
+		addLabel("Button\nMode", yTop);
+		addLabel("Drag\nMode", yBottom);
 	}
 
 	void apply(int mode) {
 		for (auto t : m_targets) ctrlModeSet(t, mode);
-		refresh(mode);
 	}
 
-	void onButton(CCObject*) { apply(0); }
-	void onDrag(CCObject*) { apply(1); }
+	// A toggler flips right AFTER its callback, so we set the opposite state here.
+	void onButton(CCObject* sender) {
+		auto t = static_cast<CCMenuItemToggler*>(sender);
+		if (t->isToggled()) t->toggle(false);
+		m_togDrag->toggle(false);
+		apply(0);
+	}
+
+	void onDrag(CCObject* sender) {
+		auto t = static_cast<CCMenuItemToggler*>(sender);
+		if (t->isToggled()) t->toggle(false);
+		m_togBtn->toggle(false);
+		apply(1);
+	}
 };
 
 namespace {
@@ -96,9 +129,12 @@ namespace {
 }
 
 $execute {
+	// use the real sprite frame of an existing trigger (Move) so the texture matches;
+	// the white circle with the number is drawn over it by main.cpp
+	char const* frame = ObjectToolbox::sharedState()->intKeyToFrame(901);
 	auto cfg = GameObjectsFactory::createTriggerConfig(
 		UNIQ_ID("ctrl-trigger"),
-		"d_ball_06_001.png",
+		frame,
 		[](auto, auto, auto, auto) {
 			// the trigger itself does nothing: the touch logic lives in main.cpp
 		},

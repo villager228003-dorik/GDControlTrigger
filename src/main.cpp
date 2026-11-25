@@ -67,6 +67,25 @@ namespace {
 		return nullptr;
 	}
 
+
+	// Moves an object the way the game does, so collision follows it (best effort:
+	// every call is only used if it exists in the bindings of this game version).
+	template <class L, class O>
+	void moveSolid(L* layer, O* obj, CCPoint newPos) {
+		auto old = obj->getPosition();
+		double dx = newPos.x - old.x;
+		double dy = newPos.y - old.y;
+		bool moved = false;
+		if constexpr (requires { layer->moveObject(obj, dx, dy, false); }) {
+			layer->moveObject(obj, dx, dy, false);
+			moved = true;
+		}
+		if (!moved) obj->setPosition(newPos);
+		if constexpr (requires { obj->m_isObjectRectDirty = true; }) obj->m_isObjectRectDirty = true;
+		if constexpr (requires { obj->m_isOrientedRectDirty = true; }) obj->m_isOrientedRectDirty = true;
+		if constexpr (requires { obj->updateOrientedBox(); }) obj->updateOrientedBox();
+	}
+
 	void fireGroup(GJBaseGameLayer* layer, int group) {
 		auto arr = layer->getGroup(group);
 		if (!arr) return;
@@ -102,8 +121,11 @@ namespace {
 // ---------- White circle with a black outline and the group number (editor only) ----------
 class CTBadge : public CCNode {
 public:
+	CCDrawNode* m_circle = nullptr;
 	CCLabelBMFont* m_label = nullptr;
+	CCLabelBMFont* m_caption = nullptr;
 	int m_last = -999;
+	int m_sel = -1;
 
 	static CTBadge* create() {
 		auto r = new CTBadge();
@@ -117,18 +139,36 @@ public:
 
 	bool init() override {
 		if (!CCNode::init()) return false;
-		auto circle = CCDrawNode::create();
+		m_circle = CCDrawNode::create();
+		this->addChild(m_circle);
+		m_label = CCLabelBMFont::create("0", "bigFont.fnt");
+		this->addChild(m_label);
+		m_caption = CCLabelBMFont::create("CTRL", "bigFont.fnt");
+		m_caption->setScale(0.5f);
+		m_caption->setPosition({0.f, 26.f});
+		this->addChild(m_caption);
+		setSelected(false);
+		return true;
+	}
+
+	// normal: white circle, black outline, black number. selected: inverted, green caption.
+	void setSelected(bool sel) {
+		int s = sel ? 1 : 0;
+		if (s == m_sel) return;
+		m_sel = s;
 		CCPoint pts[32];
 		for (int i = 0; i < 32; i++) {
 			float a = static_cast<float>(i) * (2.f * 3.14159265f / 32.f);
 			pts[i] = ccp(std::cos(a) * 15.f, std::sin(a) * 15.f);
 		}
-		circle->drawPolygon(pts, 32, ccc4f(1.f, 1.f, 1.f, 1.f), 2.f, ccc4f(0.f, 0.f, 0.f, 1.f));
-		this->addChild(circle);
-		m_label = CCLabelBMFont::create("0", "bigFont.fnt");
-		m_label->setColor({0, 0, 0});
-		this->addChild(m_label);
-		return true;
+		m_circle->clear();
+		if (sel) {
+			m_circle->drawPolygon(pts, 32, ccc4f(0.f, 0.f, 0.f, 1.f), 2.f, ccc4f(1.f, 1.f, 1.f, 1.f));
+		} else {
+			m_circle->drawPolygon(pts, 32, ccc4f(1.f, 1.f, 1.f, 1.f), 2.f, ccc4f(0.f, 0.f, 0.f, 1.f));
+		}
+		m_label->setColor(sel ? ccColor3B{255, 255, 255} : ccColor3B{0, 0, 0});
+		m_caption->setColor(sel ? ccColor3B{80, 255, 80} : ccColor3B{255, 255, 255});
 	}
 
 	void setGroup(int g) {
@@ -158,6 +198,7 @@ namespace {
 			auto world = t->getParent()->convertToWorldSpace(t->getPosition());
 			b->setPosition(layer->m_objectLayer->convertToNodeSpace(world));
 			b->setGroup(t->m_targetGroupID);
+			b->setSelected(t->m_isSelected);
 		}
 		for (auto it = g_badges.begin(); it != g_badges.end();) {
 			if (!seen.count(it->first)) {
@@ -271,14 +312,19 @@ class $modify(CTBaseLayer, GJBaseGameLayer) {
 		}
 
 		for (auto& [obj, pos] : g_dropped) {
-			if (obj && obj->getParent()) obj->setPosition(pos);
+			if (obj && obj->getParent()) {
+				auto cur = obj->getPosition();
+				if (std::fabs(cur.x - pos.x) > 0.01f || std::fabs(cur.y - pos.y) > 0.01f) {
+					moveSolid(static_cast<GJBaseGameLayer*>(this), obj, pos);
+				}
+			}
 		}
 
 		if (g_drag.touch && g_drag.obj && g_drag.obj->getParent()) {
 			float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - g_drag.start).count();
 			auto loc = g_drag.moves > 0 ? g_drag.cur : g_drag.touch->getLocation();
 			if (elapsed >= g_drag.hold) {
-				g_drag.obj->setPosition(g_drag.obj->getParent()->convertToNodeSpace(loc));
+				moveSolid(static_cast<GJBaseGameLayer*>(this), g_drag.obj, g_drag.obj->getParent()->convertToNodeSpace(loc));
 				g_drag.moved = true;
 			}
 		}
