@@ -2,6 +2,16 @@
 // Uses the open-source "game objects factory" (lil2kki/geode-game-objects-factory),
 // downloaded at build time and compiled into this mod.
 #include <Geode/Geode.hpp>
+#include <string>
+#include <vector>
+
+// Geode v6 removed gd::vector / gd::string, but the library still uses these names.
+namespace gd {
+	template <class T>
+	using vector = std::vector<T>;
+	using string = std::string;
+}
+
 #include <main.hpp>
 #include <impl.hpp>
 
