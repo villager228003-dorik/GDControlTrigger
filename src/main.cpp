@@ -8,13 +8,9 @@
 #include <set>
 #include <vector>
 #include <string>
+#include "ctrl.hpp"
 
 using namespace geode::prelude;
-
-// The Ctrl trigger uses the Rotate trigger (object id 1346) as its body:
-//   Target Group = button group, Center Group = group of triggers to fire (0 = drag mode),
-//   Duration = hold time before drag.
-static constexpr int CTRL_ID = 1346;
 
 namespace {
 	struct Cfg {
@@ -27,7 +23,7 @@ namespace {
 		std::vector<EffectGameObject*> out;
 		if (!layer || !layer->m_objects) return out;
 		for (auto obj : CCArrayExt<GameObject*>(layer->m_objects)) {
-			if (obj && obj->m_objectID == CTRL_ID) {
+			if (obj && obj->m_objectID == ctrlObjectId()) {
 				out.push_back(static_cast<EffectGameObject*>(obj));
 			}
 		}
@@ -163,31 +159,10 @@ namespace {
 	}
 }
 
-namespace {
-	int g_lastRaw = -1;
-	int g_alerts = 0;
-}
-
 class $modify(CTEditorLayer, LevelEditorLayer) {
 	void update(float dt) {
 		LevelEditorLayer::update(dt);
 		syncBadges(this);
-
-		// temporary diagnostics: shown when the number of Rotate triggers changes
-		int total = m_objects ? static_cast<int>(m_objects->count()) : -1;
-		int raw = 0;
-		if (m_objects) {
-			for (auto obj : CCArrayExt<GameObject*>(m_objects)) {
-				if (obj && obj->m_objectID == CTRL_ID) raw++;
-			}
-		}
-		if (raw != g_lastRaw && g_alerts < 12) {
-			g_lastRaw = raw;
-			g_alerts++;
-			auto msg = fmt::format("objects={} rotate={} badges={} layer={}",
-				total, raw, g_badges.size(), m_objectLayer ? 1 : 0);
-			FLAlertLayer::create("Ctrl v2.1.0", msg, "OK")->show();
-		}
 	}
 };
 
