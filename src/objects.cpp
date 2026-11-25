@@ -31,6 +31,16 @@ int ctrlObjectId() {
 namespace {
 	std::map<GameObject*, int> g_modes;
 	std::map<GameObject*, bool> g_locks;
+	std::map<GameObject*, bool> g_afters;
+}
+
+bool ctrlAfterGet(GameObject* obj) {
+	auto it = g_afters.find(obj);
+	return it != g_afters.end() && it->second;
+}
+
+void ctrlAfterSet(GameObject* obj, bool after) {
+	g_afters[obj] = after;
 }
 
 bool ctrlLockGet(GameObject* obj) {
@@ -74,20 +84,21 @@ public:
 	CCMenuItemToggler* m_togBtn = nullptr;
 	CCMenuItemToggler* m_togDrag = nullptr;
 	CCMenuItemToggler* m_togLock = nullptr;
+	CCMenuItemToggler* m_togAfter = nullptr;
 
-	static CTModeUI* create(std::vector<EffectGameObject*> targets, int mode, bool lock, CCMenu* menu, FLAlertLayer* popup) {
+	static CTModeUI* create(std::vector<EffectGameObject*> targets, int mode, bool lock, bool after, CCMenu* menu, FLAlertLayer* popup) {
 		auto r = new CTModeUI();
 		if (r && r->init()) {
 			r->autorelease();
 			menu->addChild(r);
-			r->setup(std::move(targets), mode, lock, menu, popup);
+			r->setup(std::move(targets), mode, lock, after, menu, popup);
 			return r;
 		}
 		CC_SAFE_DELETE(r);
 		return nullptr;
 	}
 
-	void setup(std::vector<EffectGameObject*> targets, int mode, bool lock, CCMenu* menu, FLAlertLayer* popup) {
+	void setup(std::vector<EffectGameObject*> targets, int mode, bool lock, bool after, CCMenu* menu, FLAlertLayer* popup) {
 		m_targets = std::move(targets);
 
 		// find the existing Touch / Spawn checkboxes: we use their rows and then hide them
@@ -101,13 +112,14 @@ public:
 			return a->getPositionY() > b->getPositionY();
 		});
 		float x = 78.f, yTop = 37.f, yBottom = 8.f;
-		float lx = -144.f, ly = 37.f;
+		float lx = -144.f, ly = 37.f, ly2 = 8.f;
 		if (existing.size() >= 2) {
 			x = existing[0]->getPositionX() + 222.f;
 			yTop = existing[0]->getPositionY();
 			yBottom = existing[1]->getPositionY();
 			lx = existing[0]->getPositionX();
 			ly = existing[0]->getPositionY();
+			ly2 = existing[1]->getPositionY();
 			for (auto tg : existing) {
 				tg->setVisible(false);
 				tg->setEnabled(false);
@@ -119,6 +131,10 @@ public:
 		m_togBtn = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onButton), 0.55f);
 		m_togDrag = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onDrag), 0.55f);
 		m_togLock = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onLock), 0.55f);
+		m_togAfter = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onAfter), 0.55f);
+		m_togAfter->setPosition({lx, ly2});
+		m_togAfter->toggle(after);
+		menu->addChild(m_togAfter);
 		m_togBtn->setPosition({x, yTop});
 		m_togDrag->setPosition({x, yBottom});
 		m_togLock->setPosition({lx, ly});
@@ -139,6 +155,7 @@ public:
 		addLabel("Button\nMode", x, yTop);
 		addLabel("Drag\nMode", x, yBottom);
 		addLabel("Lock\nMove", lx, ly);
+		addLabel("After\nDrop", lx, ly2);
 	}
 
 	void apply(int mode) {
@@ -160,6 +177,12 @@ public:
 		apply(1);
 	}
 
+	void onAfter(CCObject* sender) {
+		auto t = static_cast<CCMenuItemToggler*>(sender);
+		bool on = !t->isToggled();
+		for (auto trg : m_targets) ctrlAfterSet(trg, on);
+	}
+
 	void onLock(CCObject* sender) {
 		auto t = static_cast<CCMenuItemToggler*>(sender);
 		bool on = !t->isToggled(); // state after the flip
@@ -174,6 +197,7 @@ namespace {
 	constexpr int KEY_HOLD = 9003;   // hold time in seconds
 	constexpr int KEY_MODE = 9004;   // 0 = button mode, 1 = drag mode
 	constexpr int KEY_LOCK = 9005;   // 1 = lock the left/right buttons and keys
+	constexpr int KEY_AFTER = 9006;  // 1 = dragged objects become active only after release
 }
 
 $execute {
@@ -210,7 +234,7 @@ $execute {
 						}
 					}
 				}
-				CTModeUI::create(targets, ctrlModeGet(trigger), ctrlLockGet(trigger), menu, popup);
+				CTModeUI::create(targets, ctrlModeGet(trigger), ctrlLockGet(trigger), ctrlAfterGet(trigger), menu, popup);
 			}
 
 			auto add = [&](char const* hint, float x, std::string value, std::function<void(std::string const&)> cb) {
@@ -243,7 +267,7 @@ $execute {
 		bool semi = !str.empty() && str.back() == ';';
 		if (semi) str.pop_back();
 		if (!str.empty() && str.back() != ',') str += ",";
-		str += fmt::format("{},{},{},{},{},{},{},{},{},{}", KEY_BUTTON, trig->m_targetGroupID, KEY_FIRE, trig->m_centerGroupID, KEY_HOLD, trig->m_duration, KEY_MODE, ctrlModeGet(obj), KEY_LOCK, ctrlLockGet(obj) ? 1 : 0);
+		str += fmt::format("{},{},{},{},{},{},{},{},{},{},{},{}", KEY_BUTTON, trig->m_targetGroupID, KEY_FIRE, trig->m_centerGroupID, KEY_HOLD, trig->m_duration, KEY_MODE, ctrlModeGet(obj), KEY_LOCK, ctrlLockGet(obj) ? 1 : 0, KEY_AFTER, ctrlAfterGet(obj) ? 1 : 0);
 		if (semi) str += ";";
 		return str;
 	});
@@ -258,6 +282,7 @@ $execute {
 			else if (key == KEY_HOLD) trig->m_duration = static_cast<float>(std::atof(val.c_str()));
 			else if (key == KEY_MODE) ctrlModeSet(obj, std::atoi(val.c_str()));
 			else if (key == KEY_LOCK) ctrlLockSet(obj, std::atoi(val.c_str()) != 0);
+			else if (key == KEY_AFTER) ctrlAfterSet(obj, std::atoi(val.c_str()) != 0);
 		}
 		return obj;
 	});

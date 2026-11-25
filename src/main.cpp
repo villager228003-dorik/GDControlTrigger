@@ -18,6 +18,7 @@ namespace {
 		int group = 0;
 		int second = 0;
 		float hold = 0.3f;
+		bool afterDrop = false;
 	};
 
 	std::vector<EffectGameObject*> ctrlTriggers(GJBaseGameLayer* layer) {
@@ -39,6 +40,7 @@ namespace {
 			Cfg c;
 			c.group = t->m_targetGroupID;
 			c.hold = t->m_duration;
+			c.afterDrop = ctrlAfterGet(t);
 			c.second = mode == 0 ? t->m_centerGroupID : 0;
 			if (mode == 0 && c.second <= 0) continue;
 			v.push_back(c);
@@ -156,6 +158,11 @@ namespace {
 		int moves = 0;
 		bool moved = false;
 		float hold = 0.3f;
+		int group = 0;
+		bool afterDrop = false;
+		bool started = false;
+		CCPoint grabStart;
+		std::vector<std::pair<GameObject*, CCPoint>> others; // other objects of the drag group and their start positions
 		std::chrono::steady_clock::time_point start;
 	};
 	DragState g_drag;
@@ -164,7 +171,26 @@ namespace {
 	float g_lastPlayerX = 0.f;
 
 	void finishDrag() {
-		if (g_drag.obj && g_drag.moved) g_dropped[g_drag.obj] = g_drag.obj->getPosition();
+		if (g_drag.obj && g_drag.moved) {
+			auto layer = GJBaseGameLayer::get();
+			if (g_drag.afterDrop && layer) {
+				// the movement was only visual: apply it for real now, so triggers and collision see it
+				auto fin = g_drag.obj->getPosition();
+				g_drag.obj->setPosition(g_drag.grabStart);
+				moveSolid(layer, g_drag.obj, fin);
+				for (auto& entry : g_drag.others) {
+					if (entry.first && entry.first->getParent()) {
+						auto f = entry.first->getPosition();
+						entry.first->setPosition(entry.second);
+						moveSolid(layer, entry.first, f);
+					}
+				}
+			}
+			g_dropped[g_drag.obj] = g_drag.obj->getPosition();
+			for (auto& entry : g_drag.others) {
+				if (entry.first && entry.first->getParent()) g_dropped[entry.first] = entry.first->getPosition();
+			}
+		}
 		g_drag = DragState{};
 	}
 }
@@ -312,6 +338,8 @@ class $modify(CTUILayer, UILayer) {
 				g_drag.obj = obj;
 				g_drag.cur = t->getLocation();
 				g_drag.hold = c.hold;
+				g_drag.group = c.group;
+				g_drag.afterDrop = c.afterDrop;
 				g_drag.start = std::chrono::steady_clock::now();
 				return true;
 			}
@@ -398,7 +426,30 @@ class $modify(CTBaseLayer, GJBaseGameLayer) {
 			float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - g_drag.start).count();
 			auto loc = g_drag.moves > 0 ? g_drag.cur : g_drag.touch->getLocation();
 			if (elapsed >= g_drag.hold) {
-				moveSolid(static_cast<GJBaseGameLayer*>(this), g_drag.obj, g_drag.obj->getParent()->convertToNodeSpace(loc));
+				auto target = g_drag.obj->getParent()->convertToNodeSpace(loc);
+				if (!g_drag.started) {
+					// remember where every object of the drag group started
+					g_drag.started = true;
+					g_drag.grabStart = g_drag.obj->getPosition();
+					g_drag.others.clear();
+					if (auto arr = this->getGroup(g_drag.group)) {
+						for (auto o : CCArrayExt<GameObject*>(arr)) {
+							if (o && o != g_drag.obj && o->getParent()) g_drag.others.push_back({o, o->getPosition()});
+						}
+					}
+				}
+				auto delta = ccpSub(target, g_drag.grabStart);
+				auto mv = [&](GameObject* o, CCPoint p) {
+					if (g_drag.afterDrop) o->setPosition(p);
+					else moveSolid(static_cast<GJBaseGameLayer*>(this), o, p);
+				};
+				mv(g_drag.obj, target);
+				// the other objects follow the same path, each from its own start
+				for (auto& entry : g_drag.others) {
+					if (entry.first && entry.first->getParent()) {
+						mv(entry.first, ccpAdd(entry.second, delta));
+					}
+				}
 				g_drag.moved = true;
 			}
 		}

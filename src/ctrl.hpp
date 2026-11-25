@@ -11,3 +11,7 @@ void ctrlModeSet(GameObject* obj, int mode);
 // "Lock move" flag: hides / disables the left-right buttons and keys
 bool ctrlLockGet(GameObject* obj);
 void ctrlLockSet(GameObject* obj, bool lock);
+
+// "After Drop" flag: dragged objects become active for triggers/collision only after release
+bool ctrlAfterGet(GameObject* obj);
+void ctrlAfterSet(GameObject* obj, bool after);
