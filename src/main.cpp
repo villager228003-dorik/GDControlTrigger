@@ -4,6 +4,7 @@
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/EditorUI.hpp>
 #include <chrono>
+#include <cmath>
 #include <map>
 #include <set>
 #include <vector>
@@ -33,9 +34,14 @@ namespace {
 	std::vector<Cfg> getCfgs(GJBaseGameLayer* layer) {
 		std::vector<Cfg> v;
 		for (auto t : ctrlTriggers(layer)) {
-			if (t->m_targetGroupID > 0) {
-				v.push_back({t->m_targetGroupID, t->m_centerGroupID, t->m_duration});
-			}
+			if (t->m_targetGroupID <= 0) continue;
+			int mode = ctrlModeGet(t);
+			Cfg c;
+			c.group = t->m_targetGroupID;
+			c.hold = t->m_duration;
+			c.second = mode == 0 ? t->m_centerGroupID : 0;
+			if (mode == 0 && c.second <= 0) continue;
+			v.push_back(c);
 		}
 		if (v.empty()) {
 			// no Ctrl triggers in the level: use the mod settings
@@ -112,8 +118,12 @@ public:
 	bool init() override {
 		if (!CCNode::init()) return false;
 		auto circle = CCDrawNode::create();
-		circle->drawDot(ccp(0, 0), 16.f, ccc4f(0.f, 0.f, 0.f, 1.f));
-		circle->drawDot(ccp(0, 0), 13.f, ccc4f(1.f, 1.f, 1.f, 1.f));
+		CCPoint pts[32];
+		for (int i = 0; i < 32; i++) {
+			float a = static_cast<float>(i) * (2.f * 3.14159265f / 32.f);
+			pts[i] = ccp(std::cos(a) * 15.f, std::sin(a) * 15.f);
+		}
+		circle->drawPolygon(pts, 32, ccc4f(1.f, 1.f, 1.f, 1.f), 2.f, ccc4f(0.f, 0.f, 0.f, 1.f));
 		this->addChild(circle);
 		m_label = CCLabelBMFont::create("0", "bigFont.fnt");
 		m_label->setColor({0, 0, 0});
