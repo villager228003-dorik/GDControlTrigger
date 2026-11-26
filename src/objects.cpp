@@ -180,13 +180,13 @@ public:
 		arrow("<", menu_selector(CTModeUI::onPrev), x);
 		arrow(">", menu_selector(CTModeUI::onNext), x + 72.f);
 		m_modeLabel = CCLabelBMFont::create(modeName(mode), "bigFont.fnt");
-		m_modeLabel->setScale(0.5f);
+		m_modeLabel->setScale(0.4f);
 		m_modeLabel->setPosition({x + 36.f, yTop});
 		menu->addChild(m_modeLabel);
 		auto cap = CCLabelBMFont::create("Mode", "bigFont.fnt");
-		cap->setScale(0.3f);
+		cap->setScale(0.26f);
 		cap->setColor({200, 200, 200});
-		cap->setPosition({x + 36.f, yTop + 13.f});
+		cap->setPosition({x + 36.f, yTop + 11.f});
 		menu->addChild(cap);
 
 		// custom movement buttons: group of the Left button and group of the Right button

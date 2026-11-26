@@ -463,7 +463,32 @@ public:
 	}
 };
 
+// The palette button of our triggers shows our own pictures instead of the sprites of Move / Follow.
+static void reskinPaletteIcon(CCNode* n) {
+	auto kids = n->getChildren();
+	if (!kids) return;
+	for (auto c : CCArrayExt<CCNode*>(kids)) {
+		if (auto go = typeinfo_cast<GameObject*>(c)) {
+			std::string name;
+			if (go->m_objectID == ctrlObjectId()) name = "ctrl_btn.png"_spr;
+			else if (go->m_objectID == physObjectId()) name = "phys_btn.png"_spr;
+			if (!name.empty()) {
+				if (auto f = CCSpriteFrameCache::sharedSpriteFrameCache()->spriteFrameByName(name.c_str())) {
+					go->setDisplayFrame(f);
+				}
+			}
+		}
+		reskinPaletteIcon(c);
+	}
+}
+
 class $modify(CTEditorUI, EditorUI) {
+	CreateMenuItem* getCreateBtn(int id, int bg) {
+		auto btn = EditorUI::getCreateBtn(id, bg);
+		if (btn && (id == ctrlObjectId() || id == physObjectId())) reskinPaletteIcon(btn);
+		return btn;
+	}
+
 	bool init(LevelEditorLayer* editor) {
 		if (!EditorUI::init(editor)) return false;
 		if (auto n = CTSyncNode::create()) this->addChild(n);
