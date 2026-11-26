@@ -405,7 +405,7 @@ public:
 };
 
 namespace {
-	std::map<GameObject*, CTBadge*> g_badges;
+	std::map<GameObject*, Ref<CTBadge>> g_badges;
 
 	void syncBadges(LevelEditorLayer* layer) {
 		if (!layer->m_objectLayer) return;
@@ -416,6 +416,10 @@ namespace {
 			if (!t->getParent()) continue;
 			seen.insert(t);
 			t->setOpacity(0);
+			// hide the leftover text / decorations of the borrowed trigger sprite (e.g. the word MOVE)
+			if (auto kids = t->getChildren()) {
+				for (auto c : CCArrayExt<CCNode*>(kids)) c->setVisible(false);
+			}
 			auto& b = g_badges[t];
 			if (!b) {
 				b = CTBadge::create();
@@ -452,14 +456,23 @@ public:
 		return nullptr;
 	}
 
+	LevelEditorLayer* m_layer = nullptr;
+
 	bool init() override {
 		if (!CCNode::init()) return false;
+		// badges of an earlier editor session are gone together with that editor
+		g_badges.clear();
 		this->scheduleUpdate();
 		return true;
 	}
 
+	~CTSyncNode() override {
+		g_badges.clear();
+	}
+
 	void update(float) override {
-		if (auto layer = LevelEditorLayer::get()) syncBadges(layer);
+		auto layer = LevelEditorLayer::get();
+		if (layer && layer == m_layer) syncBadges(layer);
 	}
 };
 
@@ -491,7 +504,10 @@ class $modify(CTEditorUI, EditorUI) {
 
 	bool init(LevelEditorLayer* editor) {
 		if (!EditorUI::init(editor)) return false;
-		if (auto n = CTSyncNode::create()) this->addChild(n);
+		if (auto n = CTSyncNode::create()) {
+			n->m_layer = editor;
+			this->addChild(n);
+		}
 		return true;
 	}
 };

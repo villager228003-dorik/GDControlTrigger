@@ -411,12 +411,14 @@ $execute {
 		if (semi) str.pop_back();
 		if (!str.empty() && str.back() != ',') str += ",";
 		str += fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", KEY_BUTTON, trig->m_targetGroupID, KEY_FIRE, trig->m_centerGroupID, KEY_HOLD, trig->m_duration, KEY_MODE, ctrlModeGet(obj), KEY_LOCK, ctrlLockGet(obj) ? 1 : 0, KEY_AFTER, ctrlAfterGet(obj) ? 1 : 0, KEY_LEFT, ctrlLeftGet(obj), KEY_RIGHT, ctrlRightGet(obj));
+		log::info("Ctrl save: {}", str);
 		if (semi) str += ";";
 		return str;
 	});
 
 	cfg->objectFromVector([](GameObject* obj, auto& p0, auto&, auto, auto) -> GameObject* {
 		auto trig = static_cast<EffectGameObject*>(obj);
+		log::info("Ctrl load: {} tokens", p0.size());
 		for (size_t i = 0; i + 1 < p0.size(); i += 2) {
 			int key = std::atoi(std::string(p0[i]).c_str());
 			std::string val = std::string(p0[i + 1]);
