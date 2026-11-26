@@ -14,6 +14,19 @@
 using namespace geode::prelude;
 
 namespace {
+	// true if the object belongs to a group that a Toggle trigger switched off
+	// (every field name is only used if it exists in this version of the game)
+	template <class O>
+	bool objDisabled(O* o) {
+		if constexpr (requires { o->m_groupDisabled; }) {
+			if (o->m_groupDisabled) return true;
+		}
+		if constexpr (requires { o->m_isGroupDisabled; }) {
+			if (o->m_isGroupDisabled) return true;
+		}
+		return false;
+	}
+
 	struct Cfg {
 		int group = 0;
 		int second = 0;
@@ -26,7 +39,7 @@ namespace {
 		std::vector<EffectGameObject*> out;
 		if (!layer || !layer->m_objects) return out;
 		for (auto obj : CCArrayExt<GameObject*>(layer->m_objects)) {
-			if (obj && obj->m_objectID == ctrlObjectId()) {
+			if (obj && obj->m_objectID == ctrlObjectId() && !objDisabled(obj)) {
 				out.push_back(static_cast<EffectGameObject*>(obj));
 			}
 		}
@@ -77,7 +90,7 @@ namespace {
 		auto arr = layer->getGroup(group);
 		if (!arr) return nullptr;
 		for (auto obj : CCArrayExt<GameObject*>(arr)) {
-			if (!obj || !obj->getParent()) continue;
+			if (!obj || !obj->getParent() || objDisabled(obj)) continue;
 			auto local = obj->getParent()->convertToNodeSpace(world);
 			if (obj->boundingBox().containsPoint(local)) return obj;
 		}
@@ -107,7 +120,7 @@ namespace {
 		auto arr = layer->getGroup(group);
 		if (!arr) return;
 		for (auto obj : CCArrayExt<GameObject*>(arr)) {
-			if (auto trig = typeinfo_cast<EffectGameObject*>(obj)) {
+			if (auto trig = typeinfo_cast<EffectGameObject*>(obj); trig && !objDisabled(obj)) {
 				trig->triggerObject(layer, 0, nullptr);
 			}
 		}
@@ -120,7 +133,7 @@ namespace {
 		std::vector<EffectGameObject*> out;
 		if (!layer || !layer->m_objects) return out;
 		for (auto obj : CCArrayExt<GameObject*>(layer->m_objects)) {
-			if (obj && obj->m_objectID == physObjectId()) out.push_back(static_cast<EffectGameObject*>(obj));
+			if (obj && obj->m_objectID == physObjectId() && !objDisabled(obj)) out.push_back(static_cast<EffectGameObject*>(obj));
 		}
 		return out;
 	}
@@ -649,7 +662,7 @@ class $modify(CTBaseLayer, GJBaseGameLayer) {
 					g_drag.others.clear();
 					if (auto arr = this->getGroup(g_drag.group)) {
 						for (auto o : CCArrayExt<GameObject*>(arr)) {
-							if (o && o != g_drag.obj && o->getParent()) g_drag.others.push_back({o, o->getPosition()});
+							if (o && o != g_drag.obj && o->getParent() && !objDisabled(o)) g_drag.others.push_back({o, o->getPosition()});
 						}
 					}
 				}
