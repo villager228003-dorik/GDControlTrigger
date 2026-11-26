@@ -4,6 +4,7 @@
 #include <Geode/Geode.hpp>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <map>
 #include <functional>
@@ -109,6 +110,62 @@ static void hideVanillaTexts(CCNode* n) {
 	}
 }
 
+// Makes the "Edit Triggers" window bigger (wider and taller) and moves its title, the info
+// button and the OK button, so there is room for our own controls. Returns false if the
+// window background was not found (then the old compact layout is used).
+static bool expandPopup(FLAlertLayer* popup, CCMenu* menu) {
+	if (!popup || !menu) return false;
+	constexpr float addW = 40.f, addH = 70.f, shift = addH / 2.f;
+
+	// the biggest Scale9 sprite of the window is its brown background
+	CCScale9Sprite* bg = nullptr;
+	float best = 0.f;
+	std::function<void(CCNode*)> find = [&](CCNode* n) {
+		auto kids = n->getChildren();
+		if (!kids) return;
+		for (auto c : CCArrayExt<CCNode*>(kids)) {
+			if (auto s = typeinfo_cast<CCScale9Sprite*>(c)) {
+				auto sz = s->getContentSize();
+				if (sz.width * sz.height > best) {
+					best = sz.width * sz.height;
+					bg = s;
+				}
+			}
+			find(c);
+		}
+	};
+	find(popup);
+	if (!bg) return false;
+	auto sz = bg->getContentSize();
+	bg->setContentSize({sz.width + addW, sz.height + addH});
+
+	// the title moves up
+	std::function<void(CCNode*)> moveTitle = [&](CCNode* n) {
+		auto kids = n->getChildren();
+		if (!kids) return;
+		for (auto c : CCArrayExt<CCNode*>(kids)) {
+			if (auto l = typeinfo_cast<CCLabelBMFont*>(c)) {
+				std::string t = l->getString();
+				std::transform(t.begin(), t.end(), t.begin(), [](unsigned char ch) { return std::tolower(ch); });
+				if (t.find("edit trigger") != std::string::npos) l->setPositionY(l->getPositionY() + shift);
+			}
+			moveTitle(c);
+		}
+	};
+	moveTitle(popup);
+
+	// info button (top left) moves up, OK button (bottom centre) moves down
+	if (auto kids = menu->getChildren()) {
+		for (auto c : CCArrayExt<CCNode*>(kids)) {
+			if (!typeinfo_cast<CCMenuItemSpriteExtra*>(c)) continue;
+			float px = c->getPositionX(), py = c->getPositionY();
+			if (py > 55.f && px < -100.f) c->setPositionY(py + shift);
+			else if (std::fabs(px) < 10.f && std::fabs(py) < 12.f) c->setPositionY(py - shift);
+		}
+	}
+	return true;
+}
+
 // Controls of the Ctrl trigger window: a mode selector (Button / Drag), the groups of custom
 // Left / Right movement buttons, and "Lock Move" / "After Drop" checkboxes.
 class CTModeUI : public CCNode {
@@ -126,19 +183,19 @@ public:
 		}
 	}
 
-	static CTModeUI* create(std::vector<EffectGameObject*> targets, int mode, bool lock, bool after, CCMenu* menu, FLAlertLayer* popup) {
+	static CTModeUI* create(std::vector<EffectGameObject*> targets, int mode, bool lock, bool after, CCMenu* menu, FLAlertLayer* popup, bool big) {
 		auto r = new CTModeUI();
 		if (r && r->init()) {
 			r->autorelease();
 			menu->addChild(r);
-			r->setup(std::move(targets), mode, lock, after, menu, popup);
+			r->setup(std::move(targets), mode, lock, after, menu, popup, big);
 			return r;
 		}
 		CC_SAFE_DELETE(r);
 		return nullptr;
 	}
 
-	void setup(std::vector<EffectGameObject*> targets, int mode, bool lock, bool after, CCMenu* menu, FLAlertLayer* popup) {
+	void setup(std::vector<EffectGameObject*> targets, int mode, bool lock, bool after, CCMenu* menu, FLAlertLayer* popup, bool big) {
 		m_targets = std::move(targets);
 		m_mode = mode;
 
@@ -169,31 +226,39 @@ public:
 			if (popup) hideVanillaTexts(popup);
 		}
 
+		// positions of our controls: compact (old) layout or the expanded one
+		float selX = x, selY = yTop, f1x = x + 14.f, f2x = x + 62.f, fy = yBottom - 3.f, fcap = yBottom + 9.f, ax = lx;
+		if (big) {
+			selX = -136.f; selY = 52.f;
+			f1x = 0.f; f2x = 100.f; fy = 49.f; fcap = 64.f;
+			lx = -150.f; ly = 18.f; ax = -30.f; ly2 = 18.f;
+		}
+
 		// mode selector:  <  Button  >
 		auto arrow = [&](char const* t, SEL_MenuHandler cb, float px) {
 			auto l = CCLabelBMFont::create(t, "bigFont.fnt");
 			l->setScale(0.8f);
 			auto it = CCMenuItemLabel::create(l, this, cb);
-			it->setPosition({px, yTop});
+			it->setPosition({px, selY});
 			menu->addChild(it);
 		};
-		arrow("<", menu_selector(CTModeUI::onPrev), x);
-		arrow(">", menu_selector(CTModeUI::onNext), x + 72.f);
+		arrow("<", menu_selector(CTModeUI::onPrev), selX);
+		arrow(">", menu_selector(CTModeUI::onNext), selX + 72.f);
 		m_modeLabel = CCLabelBMFont::create(modeName(mode), "bigFont.fnt");
 		m_modeLabel->setScale(0.4f);
-		m_modeLabel->setPosition({x + 36.f, yTop});
+		m_modeLabel->setPosition({selX + 36.f, selY});
 		menu->addChild(m_modeLabel);
 		auto cap = CCLabelBMFont::create("Mode", "bigFont.fnt");
 		cap->setScale(0.26f);
 		cap->setColor({200, 200, 200});
-		cap->setPosition({x + 36.f, yTop + 11.f});
+		cap->setPosition({selX + 36.f, selY + 11.f});
 		menu->addChild(cap);
 
 		// custom movement buttons: group of the Left button and group of the Right button
 		auto field = [&](char const* caption, float px, int value, std::function<void(std::string const&)> cb) {
 			auto in = TextInput::create(110.f, caption, "bigFont.fnt");
 			in->setScale(0.4f);
-			in->setPosition({px, yBottom - 3.f});
+			in->setPosition({px, fy});
 			in->setFilter("0123456789");
 			in->setString(std::to_string(value));
 			in->setCallback(cb);
@@ -201,15 +266,15 @@ public:
 			auto l = CCLabelBMFont::create(caption, "bigFont.fnt");
 			l->setScale(0.26f);
 			l->setColor({200, 200, 200});
-			l->setPosition({px, yBottom + 9.f});
+			l->setPosition({px, fcap});
 			menu->addChild(l);
 		};
 		auto targets2 = m_targets;
-		field("Left grp", x + 14.f, ctrlLeftGet(m_targets.front()), [targets2](std::string const& v) {
+		field("Left grp", f1x, ctrlLeftGet(m_targets.front()), [targets2](std::string const& v) {
 			int g = v.empty() ? 0 : std::atoi(v.c_str());
 			for (auto t : targets2) ctrlLeftSet(t, g);
 		});
-		field("Right grp", x + 62.f, ctrlRightGet(m_targets.front()), [targets2](std::string const& v) {
+		field("Right grp", f2x, ctrlRightGet(m_targets.front()), [targets2](std::string const& v) {
 			int g = v.empty() ? 0 : std::atoi(v.c_str());
 			for (auto t : targets2) ctrlRightSet(t, g);
 		});
@@ -217,7 +282,7 @@ public:
 		m_togLock = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onLock), 0.55f);
 		m_togAfter = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onAfter), 0.55f);
 		m_togLock->setPosition({lx, ly});
-		m_togAfter->setPosition({lx, ly2});
+		m_togAfter->setPosition({ax, ly2});
 		m_togLock->toggle(lock);
 		m_togAfter->toggle(after);
 		menu->addChild(m_togLock);
@@ -231,7 +296,7 @@ public:
 			menu->addChild(l);
 		};
 		addLabel("Lock\nMove", lx, ly);
-		addLabel("After\nDrop", lx, ly2);
+		addLabel("After\nDrop", ax, ly2);
 	}
 
 	void setMode(int mode) {
@@ -260,19 +325,19 @@ class CTPhysUI : public CCNode {
 public:
 	std::vector<EffectGameObject*> m_targets;
 
-	static CTPhysUI* create(std::vector<EffectGameObject*> targets, CCMenu* menu, FLAlertLayer* popup) {
+	static CTPhysUI* create(std::vector<EffectGameObject*> targets, CCMenu* menu, FLAlertLayer* popup, bool big) {
 		auto r = new CTPhysUI();
 		if (r && r->init()) {
 			r->autorelease();
 			menu->addChild(r);
-			r->setup(std::move(targets), menu, popup);
+			r->setup(std::move(targets), menu, popup, big);
 			return r;
 		}
 		CC_SAFE_DELETE(r);
 		return nullptr;
 	}
 
-	void setup(std::vector<EffectGameObject*> targets, CCMenu* menu, FLAlertLayer* popup) {
+	void setup(std::vector<EffectGameObject*> targets, CCMenu* menu, FLAlertLayer* popup, bool big) {
 		m_targets = std::move(targets);
 		auto first = m_targets.front();
 
@@ -300,6 +365,11 @@ public:
 			if (popup) hideVanillaTexts(popup);
 		}
 
+		float cx = lx;
+		if (big) {
+			lx = -150.f; ly = 52.f; cx = -40.f; ly2 = 52.f;
+			x = 70.f; yTop = 52.f;
+		}
 		auto& d = physData(first);
 		auto add = [&](SEL_MenuHandler cb, bool on, float px, float py, char const* text) {
 			auto t = CCMenuItemToggler::createWithStandardSprites(this, cb, 0.55f);
@@ -313,7 +383,7 @@ public:
 			menu->addChild(l);
 		};
 		add(menu_selector(CTPhysUI::onPhysical), d.physical, lx, ly, "Physical\nObject");
-		add(menu_selector(CTPhysUI::onCollision), d.collision, lx, ly2, "Collision");
+		add(menu_selector(CTPhysUI::onCollision), d.collision, cx, ly2, "Collision");
 		add(menu_selector(CTPhysUI::onFill), d.fillGaps, x, yTop, "Fill\nGaps");
 	}
 
@@ -395,6 +465,7 @@ $execute {
 		[](EditTriggersPopup* popup, EffectGameObject* trigger, CCArray* objects) {
 			auto menu = popup->m_buttonMenu;
 			if (!menu) return;
+			bool big = expandPopup(popup, menu);
 
 			auto apply = [trigger, objects](auto fn) {
 				fn(trigger);
@@ -416,17 +487,24 @@ $execute {
 						}
 					}
 				}
-				CTModeUI::create(targets, ctrlModeGet(trigger), ctrlLockGet(trigger), ctrlAfterGet(trigger), menu, popup);
+				CTModeUI::create(targets, ctrlModeGet(trigger), ctrlLockGet(trigger), ctrlAfterGet(trigger), menu, popup, big);
 			}
 
 			auto add = [&](char const* hint, float x, std::string value, std::function<void(std::string const&)> cb) {
 				auto in = TextInput::create(110.f, hint, "bigFont.fnt");
 				in->setScale(0.55f);
-				in->setPosition({x, 47.f});
+				in->setPosition({x, big ? 84.f : 47.f});
 				in->setFilter("0123456789.");
 				in->setString(value);
 				in->setCallback(cb);
 				menu->addChild(in);
+				if (big) {
+					auto l = CCLabelBMFont::create(hint, "bigFont.fnt");
+					l->setScale(0.3f);
+					l->setColor({200, 200, 200});
+					l->setPosition({x, 97.f});
+					menu->addChild(l);
+				}
 			};
 
 			add("Button group", -85.f, std::to_string(trigger->m_targetGroupID), [apply](std::string const& s) {
@@ -489,6 +567,7 @@ $execute {
 		[](EditTriggersPopup* popup, EffectGameObject* trigger, CCArray* objects) {
 			auto menu = popup->m_buttonMenu;
 			if (!menu) return;
+			bool big = expandPopup(popup, menu);
 
 			std::vector<EffectGameObject*> targets{trigger};
 			if (objects) {
@@ -498,16 +577,23 @@ $execute {
 					}
 				}
 			}
-			CTPhysUI::create(targets, menu, popup);
+			CTPhysUI::create(targets, menu, popup, big);
 
 			auto add = [&](char const* hint, float x, std::string value, std::function<void(std::string const&)> cb) {
 				auto in = TextInput::create(110.f, hint, "bigFont.fnt");
 				in->setScale(0.55f);
-				in->setPosition({x, 47.f});
+				in->setPosition({x, big ? 84.f : 47.f});
 				in->setFilter("0123456789.");
 				in->setString(value);
 				in->setCallback(cb);
 				menu->addChild(in);
+				if (big) {
+					auto l = CCLabelBMFont::create(hint, "bigFont.fnt");
+					l->setScale(0.3f);
+					l->setColor({200, 200, 200});
+					l->setPosition({x, 97.f});
+					menu->addChild(l);
+				}
 			};
 			auto all = [targets](auto fn) { for (auto t : targets) fn(t); };
 
