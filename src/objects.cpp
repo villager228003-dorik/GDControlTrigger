@@ -343,6 +343,45 @@ namespace {
 	constexpr int KEY_RIGHT = 9008;  // group of the custom Right button
 }
 
+
+// GD keeps only its own property keys while a level is loaded (a table indexed by key),
+// so our values travel inside ONE existing text key: p0[31], as numbers joined with '_'.
+namespace {
+	constexpr size_t KEY_PAYLOAD = 31;
+
+	std::vector<std::string> splitPayload(std::string const& s) {
+		std::vector<std::string> out;
+		std::string cur;
+		for (char ch : s) {
+			if (ch == '_') {
+				out.push_back(cur);
+				cur.clear();
+			} else {
+				cur += ch;
+			}
+		}
+		out.push_back(cur);
+		return out;
+	}
+
+	int toInt(std::vector<std::string> const& v, size_t i) {
+		return i < v.size() && !v[i].empty() ? std::atoi(v[i].c_str()) : 0;
+	}
+
+	float toFloat(std::vector<std::string> const& v, size_t i, float def) {
+		return i < v.size() && !v[i].empty() ? static_cast<float>(std::atof(v[i].c_str())) : def;
+	}
+
+	std::string appendPayload(std::string str, std::string const& payload) {
+		bool semi = !str.empty() && str.back() == ';';
+		if (semi) str.pop_back();
+		if (!str.empty() && str.back() != ',') str += ",";
+		str += fmt::format("{},{}", KEY_PAYLOAD, payload);
+		if (semi) str += ";";
+		return str;
+	}
+}
+
 $execute {
 	// use the real sprite frame of an existing trigger (Move) so the texture matches;
 	// the white circle with the number is drawn over it by main.cpp
@@ -407,29 +446,31 @@ $execute {
 
 	cfg->saveString([](std::string str, GameObject* obj, auto) {
 		auto trig = static_cast<EffectGameObject*>(obj);
-		bool semi = !str.empty() && str.back() == ';';
-		if (semi) str.pop_back();
-		if (!str.empty() && str.back() != ',') str += ",";
-		str += fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", KEY_BUTTON, trig->m_targetGroupID, KEY_FIRE, trig->m_centerGroupID, KEY_HOLD, trig->m_duration, KEY_MODE, ctrlModeGet(obj), KEY_LOCK, ctrlLockGet(obj) ? 1 : 0, KEY_AFTER, ctrlAfterGet(obj) ? 1 : 0, KEY_LEFT, ctrlLeftGet(obj), KEY_RIGHT, ctrlRightGet(obj));
+		// button group, fire group, hold, mode, lock, after drop, left group, right group
+		auto payload = fmt::format("{}_{}_{}_{}_{}_{}_{}_{}",
+			trig->m_targetGroupID, trig->m_centerGroupID, trig->m_duration, ctrlModeGet(obj),
+			ctrlLockGet(obj) ? 1 : 0, ctrlAfterGet(obj) ? 1 : 0, ctrlLeftGet(obj), ctrlRightGet(obj));
+		str = appendPayload(std::move(str), payload);
 		log::info("Ctrl save: {}", str);
-		if (semi) str += ";";
 		return str;
 	});
 
 	cfg->objectFromVector([](GameObject* obj, auto& p0, auto&, auto, auto) -> GameObject* {
 		auto trig = static_cast<EffectGameObject*>(obj);
-		log::info("Ctrl load: {} tokens", p0.size());
-		for (size_t i = 0; i + 1 < p0.size(); i += 2) {
-			int key = std::atoi(std::string(p0[i]).c_str());
-			std::string val = std::string(p0[i + 1]);
-			if (key == KEY_BUTTON) trig->m_targetGroupID = std::atoi(val.c_str());
-			else if (key == KEY_FIRE) trig->m_centerGroupID = std::atoi(val.c_str());
-			else if (key == KEY_HOLD) trig->m_duration = static_cast<float>(std::atof(val.c_str()));
-			else if (key == KEY_MODE) ctrlModeSet(obj, std::atoi(val.c_str()));
-			else if (key == KEY_LOCK) ctrlLockSet(obj, std::atoi(val.c_str()) != 0);
-			else if (key == KEY_AFTER) ctrlAfterSet(obj, std::atoi(val.c_str()) != 0);
-			else if (key == KEY_LEFT) ctrlLeftSet(obj, std::atoi(val.c_str()));
-			else if (key == KEY_RIGHT) ctrlRightSet(obj, std::atoi(val.c_str()));
+		if (p0.size() > KEY_PAYLOAD) {
+			std::string raw = std::string(p0[KEY_PAYLOAD]);
+			log::info("Ctrl load: payload '{}'", raw);
+			if (!raw.empty()) {
+				auto v = splitPayload(raw);
+				trig->m_targetGroupID = toInt(v, 0);
+				trig->m_centerGroupID = toInt(v, 1);
+				trig->m_duration = toFloat(v, 2, 0.5f);
+				ctrlModeSet(obj, toInt(v, 3));
+				ctrlLockSet(obj, toInt(v, 4) != 0);
+				ctrlAfterSet(obj, toInt(v, 5) != 0);
+				ctrlLeftSet(obj, toInt(v, 6));
+				ctrlRightSet(obj, toInt(v, 7));
+			}
 		}
 		return obj;
 	});
@@ -489,25 +530,22 @@ $execute {
 		auto trig = static_cast<EffectGameObject*>(obj);
 		auto& d = physData(obj);
 		int flags = (d.physical ? 1 : 0) | (d.collision ? 2 : 0) | (d.fillGaps ? 4 : 0);
-		bool semi = !str.empty() && str.back() == ';';
-		if (semi) str.pop_back();
-		if (!str.empty() && str.back() != ',') str += ",";
-		str += fmt::format("{},{},{},{},{},{},{},{}", 9001, trig->m_targetGroupID, 9011, d.massGrams, 9012, d.gravity, 9013, flags);
-		if (semi) str += ";";
-		return str;
+		// group, mass in grams, gravity, flags
+		auto payload = fmt::format("{}_{}_{}_{}", trig->m_targetGroupID, d.massGrams, d.gravity, flags);
+		return appendPayload(std::move(str), payload);
 	});
 
 	cfg->objectFromVector([](GameObject* obj, auto& p0, auto&, auto, auto) -> GameObject* {
 		auto trig = static_cast<EffectGameObject*>(obj);
 		auto& d = physData(obj);
-		for (size_t i = 0; i + 1 < p0.size(); i += 2) {
-			int key = std::atoi(std::string(p0[i]).c_str());
-			std::string val = std::string(p0[i + 1]);
-			if (key == 9001) trig->m_targetGroupID = std::atoi(val.c_str());
-			else if (key == 9011) d.massGrams = std::atoi(val.c_str());
-			else if (key == 9012) d.gravity = static_cast<float>(std::atof(val.c_str()));
-			else if (key == 9013) {
-				int f = std::atoi(val.c_str());
+		if (p0.size() > KEY_PAYLOAD) {
+			std::string raw = std::string(p0[KEY_PAYLOAD]);
+			if (!raw.empty()) {
+				auto v = splitPayload(raw);
+				trig->m_targetGroupID = toInt(v, 0);
+				d.massGrams = toInt(v, 1);
+				d.gravity = toFloat(v, 2, 9.8f);
+				int f = toInt(v, 3);
 				d.physical = (f & 1) != 0;
 				d.collision = (f & 2) != 0;
 				d.fillGaps = (f & 4) != 0;
