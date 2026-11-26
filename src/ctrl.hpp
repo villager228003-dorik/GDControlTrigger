@@ -15,3 +15,21 @@ void ctrlLockSet(GameObject* obj, bool lock);
 // "After Drop" flag: dragged objects become active for triggers/collision only after release
 bool ctrlAfterGet(GameObject* obj);
 void ctrlAfterSet(GameObject* obj, bool after);
+
+// ---- Physics trigger ----
+int physObjectId();
+
+struct PhysData {
+	float gravity = 9.8f;   // m/s^2
+	int massGrams = 1000;   // 1000 g = 1 kg
+	bool physical = true;   // can fall / move
+	bool collision = true;  // solid for the player and other bodies
+	bool fillGaps = false;  // treat the whole area between the blocks as solid
+};
+PhysData& physData(GameObject* obj);
+
+// groups of custom Left / Right movement buttons bound by a Ctrl trigger (0 = none)
+int ctrlLeftGet(GameObject* obj);
+void ctrlLeftSet(GameObject* obj, int group);
+int ctrlRightGet(GameObject* obj);
+void ctrlRightSet(GameObject* obj, int group);

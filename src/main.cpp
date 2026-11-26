@@ -19,6 +19,7 @@ namespace {
 		int second = 0;
 		float hold = 0.3f;
 		bool afterDrop = false;
+		int moveBtn = 0; // 2 = custom Left button, 3 = custom Right button
 	};
 
 	std::vector<EffectGameObject*> ctrlTriggers(GJBaseGameLayer* layer) {
@@ -35,15 +36,29 @@ namespace {
 	std::vector<Cfg> getCfgs(GJBaseGameLayer* layer) {
 		std::vector<Cfg> v;
 		for (auto t : ctrlTriggers(layer)) {
-			if (t->m_targetGroupID <= 0) continue;
-			int mode = ctrlModeGet(t);
-			Cfg c;
-			c.group = t->m_targetGroupID;
-			c.hold = t->m_duration;
-			c.afterDrop = ctrlAfterGet(t);
-			c.second = mode == 0 ? t->m_centerGroupID : 0;
-			if (mode == 0 && c.second <= 0) continue;
-			v.push_back(c);
+			// the main behavior: Button or Drag on the Button group
+			if (t->m_targetGroupID > 0) {
+				int mode = ctrlModeGet(t) == 1 ? 1 : 0;
+				Cfg c;
+				c.group = t->m_targetGroupID;
+				c.hold = t->m_duration;
+				c.afterDrop = ctrlAfterGet(t);
+				c.second = mode == 0 ? t->m_centerGroupID : 0;
+				if (!(mode == 0 && c.second <= 0)) v.push_back(c);
+			}
+			// custom Left / Right movement buttons (independent of the mode)
+			if (int lg = ctrlLeftGet(t); lg > 0) {
+				Cfg c;
+				c.group = lg;
+				c.moveBtn = 2;
+				v.push_back(c);
+			}
+			if (int rg = ctrlRightGet(t); rg > 0) {
+				Cfg c;
+				c.group = rg;
+				c.moveBtn = 3;
+				v.push_back(c);
+			}
 		}
 		if (v.empty()) {
 			// no Ctrl triggers in the level: use the mod settings
@@ -99,6 +114,121 @@ namespace {
 	}
 
 
+
+	// ---- Physics trigger: a body (group of blocks) falls under gravity and lands on solid blocks ----
+	std::vector<EffectGameObject*> physTriggers(GJBaseGameLayer* layer) {
+		std::vector<EffectGameObject*> out;
+		if (!layer || !layer->m_objects) return out;
+		for (auto obj : CCArrayExt<GameObject*>(layer->m_objects)) {
+			if (obj && obj->m_objectID == physObjectId()) out.push_back(static_cast<EffectGameObject*>(obj));
+		}
+		return out;
+	}
+
+	struct PhysBody {
+		std::vector<std::pair<GameObject*, CCPoint>> blocks; // block and its start position
+		float vy = 0.f;
+		bool init = false;
+	};
+	std::map<EffectGameObject*, PhysBody> g_bodies;
+	std::vector<CCRect> g_statics;
+	bool g_staticsReady = false;
+	std::vector<EffectGameObject*> g_physCache;
+	GJBaseGameLayer* g_physLayer = nullptr;
+	int g_physTick = 0;
+
+	void resetPhysics(GJBaseGameLayer* layer) {
+		for (auto& [t, body] : g_bodies) {
+			for (auto& [o, start] : body.blocks) {
+				if (o && o->getParent()) moveSolid(layer, o, start);
+			}
+			body.vy = 0.f;
+		}
+	}
+
+	void buildStatics(GJBaseGameLayer* layer, std::vector<EffectGameObject*> const& trigs) {
+		std::set<GameObject*> moving;
+		for (auto t : trigs) {
+			if (auto arr = layer->getGroup(t->m_targetGroupID)) {
+				for (auto o : CCArrayExt<GameObject*>(arr)) moving.insert(o);
+			}
+		}
+		g_statics.clear();
+		if (layer->m_objects) {
+			for (auto o : CCArrayExt<GameObject*>(layer->m_objects)) {
+				if (!o || !o->getParent() || moving.count(o)) continue;
+				if (o->m_objectType == GameObjectType::Solid) g_statics.push_back(o->boundingBox());
+			}
+		}
+		g_staticsReady = true;
+	}
+
+	void stepPhysics(GJBaseGameLayer* layer, float dt) {
+		if (!layer->m_player1) return;
+		if (g_physLayer != layer || g_physTick++ % 60 == 0) {
+			g_physLayer = layer;
+			g_physCache = physTriggers(layer);
+		}
+		if (g_physCache.empty()) return;
+		if (!g_staticsReady) buildStatics(layer, g_physCache);
+		float px = layer->m_player1->getPositionX();
+
+		for (auto t : g_physCache) {
+			auto& d = physData(t);
+			if (!d.physical || t->m_targetGroupID <= 0 || px < t->getPositionX()) continue;
+			auto& body = g_bodies[t];
+			if (!body.init) {
+				body.init = true;
+				if (auto arr = layer->getGroup(t->m_targetGroupID)) {
+					for (auto o : CCArrayExt<GameObject*>(arr)) {
+						if (o && o->getParent()) body.blocks.push_back({o, o->getPosition()});
+					}
+				}
+			}
+			if (body.blocks.empty()) continue;
+
+			// 1 block = 30 units = 1 meter
+			body.vy -= d.gravity * 30.f * dt;
+			float dy = body.vy * dt;
+			if (dy < 0.f) {
+				std::vector<CCRect> rects;
+				if (d.fillGaps) {
+					float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+					for (auto& [o, s] : body.blocks) {
+						auto r = o->boundingBox();
+						x0 = std::min(x0, r.getMinX());
+						y0 = std::min(y0, r.getMinY());
+						x1 = std::max(x1, r.getMaxX());
+						y1 = std::max(y1, r.getMaxY());
+					}
+					rects.push_back(CCRect(x0, y0, x1 - x0, y1 - y0));
+				} else {
+					for (auto& [o, s] : body.blocks) rects.push_back(o->boundingBox());
+				}
+				float allowed = -dy;
+				for (auto const& r : rects) {
+					for (auto const& st : g_statics) {
+						if (r.getMaxX() > st.getMinX() + 0.5f && r.getMinX() < st.getMaxX() - 0.5f && st.getMaxY() <= r.getMinY() + 0.5f) {
+							allowed = std::min(allowed, std::max(r.getMinY() - st.getMaxY(), 0.f));
+						}
+					}
+				}
+				if (allowed < -dy) {
+					dy = -allowed;
+					body.vy = 0.f;
+				}
+			}
+			if (std::fabs(dy) > 0.001f) {
+				for (auto& [o, s] : body.blocks) {
+					if (o && o->getParent()) {
+						auto p = o->getPosition();
+						moveSolid(layer, o, ccp(p.x, p.y + dy));
+					}
+				}
+			}
+		}
+	}
+
 	// ---- "Lock Move": hide / disable the left-right buttons and keys ----
 	bool g_lockMove = false;
 	std::vector<Ref<CCNode>> g_hiddenUI;
@@ -150,6 +280,16 @@ namespace {
 	}
 
 	CCTouch* g_buttonTouch = nullptr;
+
+	// custom Left / Right buttons made of level objects: touch -> game button 2 / 3
+	bool g_inject = false;
+	std::map<CCTouch*, int> g_moveTouches;
+
+	void pressMove(GJBaseGameLayer* layer, bool down, int button) {
+		g_inject = true;
+		layer->handleButton(down, button, true);
+		g_inject = false;
+	}
 
 	struct DragState {
 		CCTouch* touch = nullptr;
@@ -203,6 +343,7 @@ public:
 	CCLabelBMFont* m_caption = nullptr;
 	int m_last = -999;
 	int m_sel = -1;
+	std::string m_captionText = "CTRL";
 
 	static CTBadge* create() {
 		auto r = new CTBadge();
@@ -248,6 +389,13 @@ public:
 		m_caption->setColor(sel ? ccColor3B{80, 255, 80} : ccColor3B{255, 255, 255});
 	}
 
+	void setCaption(char const* c) {
+		if (m_captionText != c) {
+			m_captionText = c;
+			m_caption->setString(c);
+		}
+	}
+
 	void setGroup(int g) {
 		if (g == m_last) return;
 		m_last = g;
@@ -262,7 +410,9 @@ namespace {
 	void syncBadges(LevelEditorLayer* layer) {
 		if (!layer->m_objectLayer) return;
 		std::set<GameObject*> seen;
-		for (auto t : ctrlTriggers(layer)) {
+		auto all = ctrlTriggers(layer);
+		for (auto t : physTriggers(layer)) all.push_back(t);
+		for (auto t : all) {
 			if (!t->getParent()) continue;
 			seen.insert(t);
 			t->setOpacity(0);
@@ -274,6 +424,7 @@ namespace {
 			}
 			auto world = t->getParent()->convertToWorldSpace(t->getPosition());
 			b->setPosition(layer->m_objectLayer->convertToNodeSpace(world));
+			b->setCaption(t->m_objectID == physObjectId() ? "PHYS" : "CTRL");
 			b->setGroup(t->m_targetGroupID);
 			b->setSelected(t->m_isSelected);
 		}
@@ -328,6 +479,11 @@ class $modify(CTUILayer, UILayer) {
 			for (auto const& c : getCfgs(layer)) {
 				auto obj = hitObject(layer, c.group, t->getLocation());
 				if (!obj) continue;
+				if (c.moveBtn) {
+					g_moveTouches[t] = c.moveBtn;
+					pressMove(layer, true, c.moveBtn);
+					return true;
+				}
 				if (c.second > 0) {
 					g_buttonTouch = t;
 					fireGroup(layer, c.second);
@@ -357,12 +513,22 @@ class $modify(CTUILayer, UILayer) {
 	}
 
 	void ccTouchEnded(CCTouch* t, CCEvent* e) {
+		if (auto it = g_moveTouches.find(t); it != g_moveTouches.end()) {
+			if (auto layer = GJBaseGameLayer::get()) pressMove(layer, false, it->second);
+			g_moveTouches.erase(it);
+			return;
+		}
 		if (g_buttonTouch && t == g_buttonTouch) { g_buttonTouch = nullptr; return; }
 		if (g_drag.touch && t == g_drag.touch) { finishDrag(); return; }
 		UILayer::ccTouchEnded(t, e);
 	}
 
 	void ccTouchCancelled(CCTouch* t, CCEvent* e) {
+		if (auto it = g_moveTouches.find(t); it != g_moveTouches.end()) {
+			if (auto layer = GJBaseGameLayer::get()) pressMove(layer, false, it->second);
+			g_moveTouches.erase(it);
+			return;
+		}
 		if (g_buttonTouch && t == g_buttonTouch) { g_buttonTouch = nullptr; return; }
 		if (g_drag.touch && t == g_drag.touch) { finishDrag(); return; }
 		UILayer::ccTouchCancelled(t, e);
@@ -376,9 +542,15 @@ class $modify(CTPlayLayer, PlayLayer) {
 		g_buttonTouch = nullptr;
 		g_lastPlayerX = 0.f;
 		g_lockMove = false;
+		g_moveTouches.clear();
 		g_hiddenUI.clear();
 		g_trigCache.clear();
 		g_trigLayer = nullptr;
+		g_bodies.clear();
+		g_statics.clear();
+		g_staticsReady = false;
+		g_physCache.clear();
+		g_physLayer = nullptr;
 		PlayLayer::setupHasCompleted();
 	}
 };
@@ -387,29 +559,31 @@ class $modify(CTPlayLayer, PlayLayer) {
 class $modify(CTBaseLayer, GJBaseGameLayer) {
 	// block the left (2) and right (3) buttons / keys while "Lock Move" is active
 	void handleButton(bool down, int button, bool isPlayer1) {
-		if (down && g_lockMove && (button == 2 || button == 3)) return;
+		if (down && g_lockMove && !g_inject && (button == 2 || button == 3)) return;
 		GJBaseGameLayer::handleButton(down, button, isPlayer1);
 	}
 
 	void update(float dt) {
+		// Lock Move is active from the very start of the level if any Ctrl trigger has it on
 		bool lock = false;
-		if (m_player1) {
-			float px = m_player1->getPositionX();
-			for (auto t : cachedTriggers(this)) {
-				if (t && ctrlLockGet(t) && px >= t->getPositionX()) {
-					lock = true;
-					break;
-				}
+		for (auto t : cachedTriggers(this)) {
+			if (t && ctrlLockGet(t)) {
+				lock = true;
+				break;
 			}
 		}
 		g_lockMove = lock;
 		applyLockUI();
 
 		GJBaseGameLayer::update(dt);
+		stepPhysics(static_cast<GJBaseGameLayer*>(this), dt);
 
 		if (m_player1) {
 			float x = m_player1->getPositionX();
-			if (x < g_lastPlayerX - 5.f) g_dropped.clear();
+			if (x < g_lastPlayerX - 5.f) {
+				g_dropped.clear();
+				resetPhysics(static_cast<GJBaseGameLayer*>(this));
+			}
 			g_lastPlayerX = x;
 		}
 
