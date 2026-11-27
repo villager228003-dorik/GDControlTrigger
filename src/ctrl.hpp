@@ -33,3 +33,7 @@ int ctrlLeftGet(GameObject* obj);
 void ctrlLeftSet(GameObject* obj, int group);
 int ctrlRightGet(GameObject* obj);
 void ctrlRightSet(GameObject* obj, int group);
+
+// "Repeat while held": seconds between repeated fires while the finger stays on the button (0 = off)
+float ctrlRepeatGet(GameObject* obj);
+void ctrlRepeatSet(GameObject* obj, float seconds);

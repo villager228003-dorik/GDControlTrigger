@@ -6,7 +6,7 @@
 		"mac": "2.2091",
 		"ios": "2.2091"
 	},
-	"version": "v4.8.0",
+	"version": "v4.9.1",
 	"id": "elisey.controltrigger",
 	"name": "Ctrl",
 	"developer": "Elisey",
@@ -54,7 +54,10 @@
 		"spritesheets": {
 			"CtrlSheet": [
 				"resources/ctrl_btn.png",
-				"resources/phys_btn.png"
+				"resources/phys_btn.png",
+				"resources/ctrl_badge.png",
+				"resources/phys_badge.png",
+				"resources/phys_badge_sel.png"
 			]
 		}
 	}

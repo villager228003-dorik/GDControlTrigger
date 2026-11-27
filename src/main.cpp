@@ -33,6 +33,7 @@ namespace {
 		float hold = 0.3f;
 		bool afterDrop = false;
 		int moveBtn = 0; // 2 = custom Left button, 3 = custom Right button
+		float repeat = 0.f; // seconds between repeated fires while held (0 = off)
 	};
 
 	std::vector<EffectGameObject*> ctrlTriggers(GJBaseGameLayer* layer) {
@@ -56,6 +57,7 @@ namespace {
 				c.group = t->m_targetGroupID;
 				c.hold = t->m_duration;
 				c.afterDrop = ctrlAfterGet(t);
+				c.repeat = ctrlRepeatGet(t);
 				c.second = mode == 0 ? t->m_centerGroupID : 0;
 				if (!(mode == 0 && c.second <= 0)) v.push_back(c);
 			}
@@ -294,6 +296,14 @@ namespace {
 
 	CCTouch* g_buttonTouch = nullptr;
 
+	// buttons that keep firing while the finger is held
+	struct RepState {
+		int group = 0;
+		float interval = 0.f;
+		std::chrono::steady_clock::time_point next;
+	};
+	std::map<CCTouch*, RepState> g_repeats;
+
 	// custom Left / Right buttons made of level objects: touch -> game button 2 / 3
 	bool g_inject = false;
 	std::map<CCTouch*, int> g_moveTouches;
@@ -352,15 +362,19 @@ namespace {
 class CTBadge : public CCNode {
 public:
 	CCDrawNode* m_circle = nullptr;
+	CCSprite* m_sprite = nullptr;       // picture from resources/*_badge.png (optional)
 	CCLabelBMFont* m_label = nullptr;
 	CCLabelBMFont* m_caption = nullptr;
 	int m_last = -999;
 	int m_sel = -1;
+	bool m_phys = false;
+	std::string m_name, m_selName;
 	std::string m_captionText = "CTRL";
 
-	static CTBadge* create() {
+	static CTBadge* create(bool phys) {
 		auto r = new CTBadge();
-		if (r && r->init()) {
+		r->m_phys = phys;
+		if (r->init()) {
 			r->autorelease();
 			return r;
 		}
@@ -372,12 +386,33 @@ public:
 		if (!CCNode::init()) return false;
 		m_circle = CCDrawNode::create();
 		this->addChild(m_circle);
+
+		// your own picture: resources/ctrl_badge.png / ctrl_badge_sel.png (phys_... for Physics)
+		m_name = m_phys ? "phys_badge.png"_spr : "ctrl_badge.png"_spr;
+		m_selName = m_phys ? "phys_badge_sel.png"_spr : "ctrl_badge_sel.png"_spr;
+		if (auto f = CCSpriteFrameCache::sharedSpriteFrameCache()->spriteFrameByName(m_name.c_str())) {
+			m_sprite = CCSprite::createWithSpriteFrame(f);
+			if (m_sprite) {
+				// where the circle is inside the picture (fractions of the picture), so that the
+				// number is centred on the CIRCLE and the circle is about 31 units across
+				float ax = m_phys ? 0.5f : 0.5334f;
+				float ay = m_phys ? 0.5f : 0.3250f;
+				float frac = m_phys ? 0.953f : 0.668f;
+				m_sprite->setAnchorPoint({ax, ay});
+				m_sprite->setScale(31.f / (frac * std::max(m_sprite->getContentSize().width, 1.f)));
+				this->addChild(m_sprite);
+				m_circle->setVisible(false);
+			}
+		}
+
 		m_label = CCLabelBMFont::create("0", "bigFont.fnt");
 		this->addChild(m_label);
 		m_caption = CCLabelBMFont::create("CTRL", "bigFont.fnt");
 		m_caption->setScale(0.5f);
 		m_caption->setPosition({0.f, 26.f});
 		this->addChild(m_caption);
+		// the Ctrl picture already has the word CTRL on it
+		if (m_sprite && !m_phys) m_caption->setVisible(false);
 		setSelected(false);
 		return true;
 	}
@@ -387,16 +422,26 @@ public:
 		int s = sel ? 1 : 0;
 		if (s == m_sel) return;
 		m_sel = s;
-		CCPoint pts[32];
-		for (int i = 0; i < 32; i++) {
-			float a = static_cast<float>(i) * (2.f * 3.14159265f / 32.f);
-			pts[i] = ccp(std::cos(a) * 15.f, std::sin(a) * 15.f);
-		}
-		m_circle->clear();
-		if (sel) {
-			m_circle->drawPolygon(pts, 32, ccc4f(0.f, 0.f, 0.f, 1.f), 2.f, ccc4f(1.f, 1.f, 1.f, 1.f));
+		if (m_sprite) {
+			auto f = CCSpriteFrameCache::sharedSpriteFrameCache()->spriteFrameByName((sel ? m_selName : m_name).c_str());
+			if (f) {
+				m_sprite->setDisplayFrame(f);
+				m_sprite->setColor({255, 255, 255});
+			} else {
+				m_sprite->setColor(sel ? ccColor3B{150, 255, 150} : ccColor3B{255, 255, 255});
+			}
 		} else {
-			m_circle->drawPolygon(pts, 32, ccc4f(1.f, 1.f, 1.f, 1.f), 2.f, ccc4f(0.f, 0.f, 0.f, 1.f));
+			CCPoint pts[32];
+			for (int i = 0; i < 32; i++) {
+				float a = static_cast<float>(i) * (2.f * 3.14159265f / 32.f);
+				pts[i] = ccp(std::cos(a) * 15.f, std::sin(a) * 15.f);
+			}
+			m_circle->clear();
+			if (sel) {
+				m_circle->drawPolygon(pts, 32, ccc4f(0.f, 0.f, 0.f, 1.f), 2.f, ccc4f(1.f, 1.f, 1.f, 1.f));
+			} else {
+				m_circle->drawPolygon(pts, 32, ccc4f(1.f, 1.f, 1.f, 1.f), 2.f, ccc4f(0.f, 0.f, 0.f, 1.f));
+			}
 		}
 		m_label->setColor(sel ? ccColor3B{255, 255, 255} : ccColor3B{0, 0, 0});
 		m_caption->setColor(sel ? ccColor3B{80, 255, 80} : ccColor3B{255, 255, 255});
@@ -435,7 +480,7 @@ namespace {
 			}
 			auto& b = g_badges[t];
 			if (!b) {
-				b = CTBadge::create();
+				b = CTBadge::create(t->m_objectID == physObjectId());
 				if (!b) continue;
 				layer->m_objectLayer->addChild(b, 5000);
 			}
@@ -541,6 +586,13 @@ class $modify(CTUILayer, UILayer) {
 				if (c.second > 0) {
 					g_buttonTouch = t;
 					fireGroup(layer, c.second);
+					if (c.repeat > 0.01f) {
+						RepState rs;
+						rs.group = c.second;
+						rs.interval = c.repeat;
+						rs.next = std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(c.repeat));
+						g_repeats[t] = rs;
+					}
 					return true;
 				}
 				g_drag = DragState{};
@@ -567,6 +619,11 @@ class $modify(CTUILayer, UILayer) {
 	}
 
 	void ccTouchEnded(CCTouch* t, CCEvent* e) {
+		if (auto it = g_repeats.find(t); it != g_repeats.end()) {
+			g_repeats.erase(it);
+			if (g_buttonTouch == t) g_buttonTouch = nullptr;
+			return;
+		}
 		if (auto it = g_moveTouches.find(t); it != g_moveTouches.end()) {
 			if (auto layer = GJBaseGameLayer::get()) pressMove(layer, false, it->second);
 			g_moveTouches.erase(it);
@@ -578,6 +635,11 @@ class $modify(CTUILayer, UILayer) {
 	}
 
 	void ccTouchCancelled(CCTouch* t, CCEvent* e) {
+		if (auto it = g_repeats.find(t); it != g_repeats.end()) {
+			g_repeats.erase(it);
+			if (g_buttonTouch == t) g_buttonTouch = nullptr;
+			return;
+		}
 		if (auto it = g_moveTouches.find(t); it != g_moveTouches.end()) {
 			if (auto layer = GJBaseGameLayer::get()) pressMove(layer, false, it->second);
 			g_moveTouches.erase(it);
@@ -597,6 +659,7 @@ class $modify(CTPlayLayer, PlayLayer) {
 		g_lastPlayerX = 0.f;
 		g_lockMove = false;
 		g_moveTouches.clear();
+		g_repeats.clear();
 		g_hiddenUI.clear();
 		g_trigCache.clear();
 		g_trigLayer = nullptr;
@@ -631,6 +694,19 @@ class $modify(CTBaseLayer, GJBaseGameLayer) {
 
 		GJBaseGameLayer::update(dt);
 		stepPhysics(static_cast<GJBaseGameLayer*>(this), dt);
+
+		// "Repeat while held": fire again every interval while the finger stays on the button
+		if (!g_repeats.empty()) {
+			auto now = std::chrono::steady_clock::now();
+			for (auto& [tch, rs] : g_repeats) {
+				if (now >= rs.next) {
+					fireGroup(static_cast<GJBaseGameLayer*>(this), rs.group);
+					auto step = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(rs.interval));
+					rs.next += step;
+					if (rs.next < now) rs.next = now + step;
+				}
+			}
+		}
 
 		if (m_player1) {
 			float x = m_player1->getPositionX();

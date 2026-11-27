@@ -48,6 +48,16 @@ namespace {
 	std::map<GameObject*, bool> g_afters;
 	std::map<GameObject*, int> g_lefts;
 	std::map<GameObject*, int> g_rights;
+	std::map<GameObject*, float> g_repeats;
+}
+
+float ctrlRepeatGet(GameObject* obj) {
+	auto it = g_repeats.find(obj);
+	return it == g_repeats.end() ? 0.f : it->second;
+}
+
+void ctrlRepeatSet(GameObject* obj, float seconds) {
+	g_repeats[obj] = seconds;
 }
 
 int ctrlLeftGet(GameObject* obj) {
@@ -278,6 +288,24 @@ public:
 			int g = v.empty() ? 0 : std::atoi(v.c_str());
 			for (auto t : targets2) ctrlRightSet(t, g);
 		});
+
+		if (big) {
+			auto in = TextInput::create(110.f, "Repeat", "bigFont.fnt");
+			in->setScale(0.4f);
+			in->setPosition({110.f, 15.f});
+			in->setFilter("0123456789.");
+			in->setString(fmt::format("{}", ctrlRepeatGet(m_targets.front())));
+			in->setCallback([targets2](std::string const& v) {
+				float r = v.empty() ? 0.f : static_cast<float>(std::atof(v.c_str()));
+				for (auto t : targets2) ctrlRepeatSet(t, r);
+			});
+			menu->addChild(in);
+			auto cap2 = CCLabelBMFont::create("Repeat sec (0 = off)", "bigFont.fnt");
+			cap2->setScale(0.26f);
+			cap2->setColor({200, 200, 200});
+			cap2->setPosition({110.f, 29.f});
+			menu->addChild(cap2);
+		}
 
 		m_togLock = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onLock), 0.55f);
 		m_togAfter = CCMenuItemToggler::createWithStandardSprites(this, menu_selector(CTModeUI::onAfter), 0.55f);
@@ -525,9 +553,9 @@ $execute {
 	cfg->saveString([](std::string str, GameObject* obj, auto) {
 		auto trig = static_cast<EffectGameObject*>(obj);
 		// button group, fire group, hold, mode, lock, after drop, left group, right group
-		auto payload = fmt::format("{}_{}_{}_{}_{}_{}_{}_{}",
+		auto payload = fmt::format("{}_{}_{}_{}_{}_{}_{}_{}_{}",
 			trig->m_targetGroupID, trig->m_centerGroupID, trig->m_duration, ctrlModeGet(obj),
-			ctrlLockGet(obj) ? 1 : 0, ctrlAfterGet(obj) ? 1 : 0, ctrlLeftGet(obj), ctrlRightGet(obj));
+			ctrlLockGet(obj) ? 1 : 0, ctrlAfterGet(obj) ? 1 : 0, ctrlLeftGet(obj), ctrlRightGet(obj), ctrlRepeatGet(obj));
 		str = appendPayload(std::move(str), payload);
 		log::info("Ctrl save: {}", str);
 		return str;
@@ -548,6 +576,7 @@ $execute {
 				ctrlAfterSet(obj, toInt(v, 5) != 0);
 				ctrlLeftSet(obj, toInt(v, 6));
 				ctrlRightSet(obj, toInt(v, 7));
+				ctrlRepeatSet(obj, toFloat(v, 8, 0.f));
 			}
 		}
 		return obj;
