@@ -368,6 +368,7 @@ public:
 	int m_last = -999;
 	int m_sel = -1;
 	bool m_phys = false;
+	float m_diameter = 31.f; // diameter of the circle in level units
 	std::string m_name, m_selName;
 	std::string m_captionText = "CTRL";
 
@@ -399,7 +400,8 @@ public:
 				float ay = m_phys ? 0.5f : 0.3250f;
 				float frac = m_phys ? 0.953f : 0.668f;
 				m_sprite->setAnchorPoint({ax, ay});
-				m_sprite->setScale(31.f / (frac * std::max(m_sprite->getContentSize().width, 1.f)));
+				m_diameter = m_phys ? 31.f : 16.5f; // the circle of the Ctrl picture is about 16.5 units across
+				m_sprite->setScale(m_diameter / (frac * std::max(m_sprite->getContentSize().width, 1.f)));
 				this->addChild(m_sprite);
 				m_circle->setVisible(false);
 			}
@@ -458,7 +460,7 @@ public:
 		if (g == m_last) return;
 		m_last = g;
 		m_label->setString(std::to_string(g).c_str());
-		m_label->setScale(g < 100 ? 0.5f : (g < 1000 ? 0.38f : 0.3f));
+		m_label->setScale((g < 100 ? 0.5f : (g < 1000 ? 0.38f : 0.3f)) * (m_diameter / 31.f));
 	}
 };
 
