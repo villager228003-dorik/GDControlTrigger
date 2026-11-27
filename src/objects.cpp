@@ -483,7 +483,7 @@ namespace {
 $execute {
 	// use the real sprite frame of an existing trigger (Move) so the texture matches;
 	// the white circle with the number is drawn over it by main.cpp
-	char const* frame = ObjectToolbox::sharedState()->intKeyToFrame(901);
+	char const* frame = "emptyFrame.png"; // an empty picture: all visuals are drawn by main.cpp
 	auto cfg = GameObjectsFactory::createTriggerConfig(
 		UNIQ_ID("ctrl-trigger"),
 		frame,
@@ -586,7 +586,7 @@ $execute {
 }
 
 $execute {
-	char const* frame = ObjectToolbox::sharedState()->intKeyToFrame(1347);
+	char const* frame = "emptyFrame.png"; // an empty picture: all visuals are drawn by main.cpp
 	auto cfg = GameObjectsFactory::createTriggerConfig(
 		UNIQ_ID("physics-trigger"),
 		frame,

@@ -490,6 +490,8 @@ namespace {
 			if (!t->getParent()) continue;
 			seen.insert(t);
 			t->setOpacity(0);
+			// the picture of the object is empty, so give it the size of one cell (30x30) to stay selectable
+			t->setContentSize({30.f, 30.f});
 			// hide the leftover text / decorations of the borrowed trigger sprite (e.g. the word MOVE)
 			if (auto kids = t->getChildren()) {
 				for (auto c : CCArrayExt<CCNode*>(kids)) c->setVisible(false);
