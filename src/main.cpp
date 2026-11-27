@@ -370,6 +370,7 @@ public:
 	int m_sel = -1;
 	bool m_phys = false;
 	float m_diameter = 31.f; // diameter of the circle in level units
+	float m_cx = 0.f, m_cy = 0.f; // centre of the circle inside the badge
 	std::string m_name, m_selName;
 	std::string m_captionText = "CTRL";
 
@@ -395,24 +396,36 @@ public:
 		if (auto f = CCSpriteFrameCache::sharedSpriteFrameCache()->spriteFrameByName(m_name.c_str())) {
 			m_sprite = CCSprite::createWithSpriteFrame(f);
 			if (m_sprite) {
-				// where the circle is inside the picture (fractions of the picture), so that the
-				// number is centred on the CIRCLE and the circle is about 31 units across
-				float ax = m_phys ? 0.5f : 0.5334f;
-				float ay = m_phys ? 0.5f : 0.3250f;
-				float frac = m_phys ? 0.953f : 0.668f;
-				m_sprite->setAnchorPoint({ax, ay});
-				m_diameter = m_phys ? 31.f : 21.f; // about the size of the circle of the base triggers
-				m_sprite->setScale(m_diameter / (frac * std::max(m_sprite->getContentSize().width, 1.f)));
+				// the whole picture must fit into one grid cell (30 units); the circle is lower than
+				// the middle of the picture, so the number is moved to the middle of the CIRCLE
+				auto cs = m_sprite->getContentSize();
+				m_sprite->setAnchorPoint({0.5f, 0.5f});
+				float scale;
+				if (m_phys) {
+					scale = 18.f / (0.953f * std::max(cs.width, 1.f));
+					m_cx = 0.f;
+					m_cy = -4.f;
+					m_diameter = 18.f;
+					m_sprite->setPosition({0.f, -4.f});
+				} else {
+					scale = 29.f / std::max(cs.height, 1.f);
+					m_diameter = 0.668f * cs.width * scale;
+					m_cx = (0.5334f - 0.5f) * cs.width * scale;
+					m_cy = (0.3250f - 0.5f) * cs.height * scale;
+				}
+				m_sprite->setScale(scale);
 				this->addChild(m_sprite);
 				m_circle->setVisible(false);
 			}
 		}
 
 		m_label = CCLabelBMFont::create("0", "bigFont.fnt");
+		m_label->setPosition({m_cx, m_cy});
 		this->addChild(m_label);
 		m_caption = CCLabelBMFont::create("CTRL", "bigFont.fnt");
 		m_caption->setScale(0.5f);
-		m_caption->setPosition({0.f, 26.f});
+		m_caption->setPosition({0.f, m_sprite ? 10.f : 26.f});
+		if (m_sprite) m_caption->setScale(0.35f);
 		this->addChild(m_caption);
 		// the Ctrl picture already has the word CTRL on it
 		if (m_sprite && !m_phys) m_caption->setVisible(false);

@@ -6,7 +6,7 @@
 		"mac": "2.2091",
 		"ios": "2.2091"
 	},
-	"version": "v4.9.3",
+	"version": "v4.9.4",
 	"id": "elisey.controltrigger",
 	"name": "Ctrl",
 	"developer": "Elisey",
@@ -57,7 +57,8 @@
 				"resources/phys_btn.png",
 				"resources/ctrl_badge.png",
 				"resources/phys_badge.png",
-				"resources/phys_badge_sel.png"
+				"resources/phys_badge_sel.png",
+				"resources/ctrl_badge_sel.png"
 			]
 		}
 	}
