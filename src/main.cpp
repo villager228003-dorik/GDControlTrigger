@@ -3,6 +3,7 @@
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/EditorUI.hpp>
+#include <Geode/modify/GameObject.hpp>
 #include <chrono>
 #include <cmath>
 #include <map>
@@ -400,7 +401,7 @@ public:
 				float ay = m_phys ? 0.5f : 0.3250f;
 				float frac = m_phys ? 0.953f : 0.668f;
 				m_sprite->setAnchorPoint({ax, ay});
-				m_diameter = m_phys ? 31.f : 16.5f; // the circle of the Ctrl picture is about 16.5 units across
+				m_diameter = m_phys ? 31.f : 21.f; // about the size of the circle of the base triggers
 				m_sprite->setScale(m_diameter / (frac * std::max(m_sprite->getContentSize().width, 1.f)));
 				this->addChild(m_sprite);
 				m_circle->setVisible(false);
@@ -460,7 +461,7 @@ public:
 		if (g == m_last) return;
 		m_last = g;
 		m_label->setString(std::to_string(g).c_str());
-		m_label->setScale((g < 100 ? 0.5f : (g < 1000 ? 0.38f : 0.3f)) * (m_diameter / 31.f));
+		m_label->setScale((g < 100 ? 0.5f : (g < 1000 ? 0.38f : 0.3f)) * (m_diameter / 31.f) * (m_phys ? 1.f : 1.3f));
 	}
 };
 
@@ -569,6 +570,26 @@ class $modify(CTEditorUI, EditorUI) {
 			this->addChild(n);
 		}
 		return true;
+	}
+};
+
+// While one of our triggers is selected the game must not swap in the selected look of the
+// borrowed sprite (it shows up as a pink/black square). Our own badge shows the selection.
+class $modify(CTGameObject, GameObject) {
+	void selectObject(ccColor3B color) {
+		if (m_objectID == ctrlObjectId() || m_objectID == physObjectId()) {
+			m_isSelected = true;
+			return;
+		}
+		GameObject::selectObject(color);
+	}
+
+	void deselectObject() {
+		if (m_objectID == ctrlObjectId() || m_objectID == physObjectId()) {
+			m_isSelected = false;
+			return;
+		}
+		GameObject::deselectObject();
 	}
 };
 
